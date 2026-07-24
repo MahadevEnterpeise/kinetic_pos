@@ -1,0 +1,26 @@
+[
+  {
+    "name": "rice&curry",
+    "id": 1,
+    "items": [
+      { "name": "chiken", "price": 380, "itemid": 10 },
+      { "name": "beef", "price": 460, "itemid": 20 }
+    ]
+  },
+  {
+    "name": "fried rice",
+    "id": 2,
+    "items": [
+      { "name": "chiken", "price": 380, "itemid": 10 },
+      { "name": "beef", "price": 460, "itemid": 20 }
+    ]
+  },
+  {
+    "name": "Kottu",
+    "id": 3,
+    "items": [
+      { "name": "chiken", "price": 380, "itemid": 1 },
+      { "name": "beef", "price": 460, "itemid": 2 }
+    ]
+  }
+]

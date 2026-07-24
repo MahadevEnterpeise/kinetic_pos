@@ -1,0 +1,596 @@
+<template>
+  <div class="client-wrapper" v-if="!billshow">
+    <!-- LEFT PANE: PENDING LIST -->
+    <div class="pending-pane">
+      <div class="head">Pending Orders</div>
+      <div class="pending-list">
+        <div v-if="loading" class="empty">Loading...</div>
+        <div v-else-if="pendingOrders.length === 0" class="empty">
+          <span class="empty-icon">📭</span>
+          <p>No pending orders</p>
+        </div>
+
+        <div
+          v-for="o in pendingOrders"
+          :key="o.id"
+          class="pending-card"
+          :class="{ active: selectedOrder?.id === o.id }"
+          @click="loadPending(o)"
+        >
+          <div class="card-top-row">
+            <span class="order-id">#{{ o.id }}</span>
+            <span class="order-total">{{ o.total }} {{ currency }}</span>
+          </div>
+          <div class="card-mid-row">
+            <span class="customer-name">{{ o.customer || 'Walk-in Customer' }}</span>
+          </div>
+          <div class="card-bot-row">
+            <span class="muted">{{ o.items.length }} items</span>
+            <span class="muted">{{ formatDate(o.date) }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT PANE: BILL SECTOR -->
+    <div class="client-bill">
+      <div class="bill-header">
+        <h1 id="h1">Bill #{{ selectedOrder?.id || '--' }}</h1>
+      </div>
+
+      <div class="heads">
+        <h3 id="n">Name</h3>
+        <h3 id="q">Qty</h3>
+        <h3 id="p">Price</h3>
+      </div>
+
+      <div class="bills">
+        <div v-if="selectedItems.length === 0" class="empty">
+          <span class="empty-icon">🧾</span>
+          <p>Select a pending order</p>
+        </div>
+        <div 
+          class="bdata" 
+          v-for="i in selectedItems" 
+          :key="i.id" 
+          @click="remove(i.id)" 
+          title="Click to remove item"
+        >
+          <p class="n">{{ i.name }}</p>
+          <p class="q">{{ i.qty }}</p>
+          <p class="p">{{ Number(i.price || 0).toFixed(2) }}</p>
+        </div>
+      </div>
+
+      <div class="last">
+        <span id="subtotal">
+          <p>Sub Total</p>
+          <p>{{ Number(subtotal || 0).toFixed(2) }} {{ currency }}</p>
+        </span>
+
+        <span id="service" class="input-span">
+          <p>Service charge %</p>
+          <input type="number" v-model.number="sc" min="0" />
+        </span>
+
+        <span id="discount" class="input-span">
+          <p>Discount %</p>
+          <input type="number" v-model.number="rc" min="0" />
+        </span>
+
+        <span id="total" class="total-span">
+          <p>Total</p>
+          <p>{{ Number(total || 0).toFixed(2) }} {{ currency }}</p>
+        </span>
+
+        <div class="action-buttons">
+          <button class="reject-btn" @click="reject" :disabled="saving">Reject</button>
+          <button class="pay-btn" @click="bill" :disabled="saving">{{ buttonText }}</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { onMounted, ref, computed } from 'vue';
+import { useRouter } from 'vue-router';
+import { link } from '../assets/Link';
+
+// Router & Session Constants
+const router = useRouter();
+const Token = sessionStorage.getItem('userToken');
+const shopId = sessionStorage.getItem('shopId');
+const clientUid = sessionStorage.getItem('uid') || localStorage.getItem('uid');
+
+// Reactive State Variables
+const pendingOrders = ref([]);
+const selectedOrder = ref(null);
+const loading = ref(true);
+const currency = ref('LKR');
+const buttonText = ref('Save & Pay');
+const selectedItems = ref([]);
+const sc = ref(0);
+const rc = ref(0);
+const billshow = ref(false);
+const saving = ref(false);
+
+// Computed Calculations
+const subtotal = computed(() => {
+  return selectedItems.value.reduce((sum, item) => sum + item.price, 0);
+});
+
+const total = computed(() => {
+  const chargeAmount = (subtotal.value * sc.value) / 100;
+  let stotal = subtotal.value + chargeAmount;
+  const reduce = (stotal * rc.value) / 100;
+  return Math.max(0, stotal - reduce);
+});
+
+// Utility Functions
+const formatDate = (iso) => new Date(iso).toLocaleDateString('en-CA');
+
+function remove(rid) {
+  selectedItems.value = selectedItems.value.filter(item => item.id !== rid);
+}
+
+function loadPending(o) {
+  selectedOrder.value = o;
+  selectedItems.value = o.items.map(it => ({
+    id: it.itemid || it.id,
+    name: it.name,
+    qty: it.qty,
+    price: it.price * it.qty
+  }));
+  sc.value = o.servicePct || 0;
+  rc.value = o.discount || 0;
+}
+
+// Order Action Handlers
+async function reject() {
+  if (!selectedOrder.value) return;
+  saving.value = true;
+  
+  try {
+    const response = await fetch(`${link}/orders/${selectedOrder.value.id}`, {
+      method: 'PATCH',
+      headers: { 
+        'Authorization': `Bearer ${Token}`, 
+        'Content-Type': 'application/json', 
+        'shop-id': shopId 
+      },
+      body: JSON.stringify({ 
+        status: 'cancelled',
+        staffName: 'Cashier' 
+      })
+    });
+
+    if (!response.ok) throw new Error(`Reject failed: ${response.status}`);
+
+    pendingOrders.value = pendingOrders.value.filter(o => o.id !== selectedOrder.value.id);
+    selectedOrder.value = null;
+    selectedItems.value = [];
+  } catch (err) {
+    console.error("Reject failed:", err);
+    alert("Could not reject order.");
+  } finally {
+    saving.value = false;
+  }
+}
+
+async function bill() {
+  if (!selectedOrder.value) {
+    alert('Please select a pending order first');
+    return;
+  }
+  if (selectedItems.value.length === 0) {
+    alert('Cart is empty');
+    return;
+  }
+  if (saving.value) return;
+
+  saving.value = true;
+  buttonText.value = 'Saving...';
+
+  const payload = {
+    id: selectedOrder.value.id,
+    status: 'paid',
+    clientUid: clientUid,
+    sc: Number(sc.value) || 0,
+    rc: Number(rc.value) || 0,
+    items: selectedItems.value.map(i => ({
+      ...i, 
+      price: i.qty > 0 ? i.price / i.qty : i.price
+    })),
+    rcvalue: Number(rc.value),
+    scvalue: Number(sc.value),
+    stotal: Number(subtotal.value),
+    total: Number(total.value),
+    currency: String(currency.value),
+    staffName: 'Cashier'
+  };
+
+  try {
+    const res = await fetch(`${link}/orders/${selectedOrder.value.id}`, {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `Bearer ${Token}`,
+        'Content-Type': 'application/json',
+        'shop-id': shopId,
+        'client-uid': clientUid
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) throw new Error(`Save failed: ${res.status}`);
+    const result = await res.json();
+
+    router.push({ name: 'billprint', state: { ...payload, billnum: result.billnum } });
+
+    pendingOrders.value = pendingOrders.value.filter(o => o.id !== selectedOrder.value.id);
+    selectedOrder.value = null;
+    selectedItems.value = [];
+    rc.value = 0;
+    sc.value = 0;
+  } catch (err) {
+    console.error("Bill save failed:", err);
+    alert(err.message || "Could not save bill.");
+  } finally {
+    saving.value = false;
+    buttonText.value = 'Save & Pay';
+  }
+}
+
+// Lifecycle Hooks
+onMounted(async () => {
+  if (!Token) {
+    router.push('/');
+    return;
+  }
+
+  try {
+    const res = await fetch(`${link}/pendingorders`, {
+      headers: { 'Authorization': `Bearer ${Token}`, 'shop-id': shopId }
+    });
+    
+    if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
+    const data = await res.json();
+    
+    pendingOrders.value = data;
+    if (data.length > 0) currency.value = data[0].currency || 'LKR';
+  } catch (err) {
+    console.error("Failed to load pending:", err);
+    alert("Could not load pending orders.");
+  } finally {
+    loading.value = false;
+  }
+});
+</script>
+
+<style scoped>
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100vh;
+  background-color: #f0f8ff;
+  overflow: hidden;
+}
+
+.client-wrapper {
+  width: 100vw;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  justify-content: center;
+  height: 100vh;
+  overflow: hidden;
+  background-color: #f0f8ff;
+  box-sizing: border-box;
+}
+
+/* 1. LEFT PANE = 50% Pending List */
+.pending-pane {
+  width: 50%;
+  background: #ffffff;
+  border-right: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  box-sizing: border-box;
+}
+
+.head {
+  padding: 18px 20px;
+  background: #041528;
+  color: white;
+  flex-shrink: 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.pending-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background-color: #f8fafc;
+}
+
+.pending-card {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 14px 16px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pending-card:hover { 
+  border-color: #0077B6; 
+  background: #f0f8ff; 
+}
+
+.pending-card.active { 
+  border-color: #0077B6; 
+  background: #e6f4fb; 
+  box-shadow: 0 0 0 2px rgba(0, 119, 182, 0.2); 
+}
+
+.card-top-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.order-id {
+  font-weight: 700;
+  color: #041528;
+  font-size: 0.95rem;
+}
+
+.order-total {
+  font-weight: 700;
+  color: #0077B6;
+  font-size: 0.95rem;
+}
+
+.card-mid-row {
+  display: flex;
+  justify-content: space-between;
+}
+
+.customer-name {
+  font-weight: 600;
+  color: #334155;
+  font-size: 0.9rem;
+}
+
+.card-bot-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 2px;
+}
+
+.muted { 
+  color: #64748b; 
+  font-size: 0.8rem; 
+}
+
+.empty { 
+  padding: 40px; 
+  text-align: center; 
+  color: #94a3b8; 
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.95rem;
+}
+
+.empty-icon {
+  font-size: 2rem;
+}
+
+/* 2. RIGHT PANE = 50% Your Bill Sector */
+.client-bill {
+  width: 50%;
+  background-color: #ffffff;
+  color: #1e293b;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+.bill-header {
+  padding: 18px 20px 0 20px;
+  background: #ffffff;
+  flex-shrink: 0;
+}
+
+#h1 {
+  width: 100%;
+  margin: 0;
+  font-size: 1.15rem;
+  color: #041528;
+  font-weight: 600;
+}
+
+.heads {
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  flex-shrink: 0;
+  border-bottom: 2px solid #e2e8f0;
+  box-sizing: border-box;
+  background: #ffffff;
+}
+
+.heads h3 {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #64748b;
+  font-weight: 600;
+}
+
+#n { width: 50%; text-align: left; }
+#q { text-align: center; width: 15%; }
+#p { text-align: right; width: 35%; }
+
+.bills {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  width: 100%;
+  padding: 0 20px;
+  box-sizing: border-box;
+}
+
+.bdata {
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 4px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  border-bottom: 1px solid #f1f5f9;
+  transition: background 0.15s;
+}
+
+.bdata:hover { 
+  background: rgba(239, 68, 68, 0.05); 
+  border-radius: 6px;
+}
+
+.n { 
+  width: 50%; 
+  text-align: left; 
+  overflow: hidden; 
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #334155;
+  font-weight: 500;
+}
+
+.q { 
+  overflow: hidden; 
+  text-align: center; 
+  width: 15%; 
+  color: #64748b;
+}
+
+.p { 
+  overflow: hidden; 
+  text-align: right; 
+  width: 35%; 
+  color: #1e293b;
+  font-weight: 600;
+}
+
+.last {
+  position: sticky;
+  bottom: 0;
+  background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+  padding: 15px 20px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.last span {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  font-size: 0.9rem;
+  color: #475569;
+  font-weight: 500;
+}
+
+.input-span input { 
+  width: 65px; 
+  padding: 4px;
+  text-align: center; 
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  background: #ffffff;
+  color: #1e293b;
+  outline: none;
+}
+
+.input-span input:focus {
+  border-color: #0077B6;
+}
+
+.total-span {
+  font-size: 1.1rem !important;
+  font-weight: 700 !important;
+  color: #041528 !important;
+  border-top: 1px dashed #cbd5e1;
+  padding-top: 8px;
+  margin-top: 2px;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  margin-top: 4px;
+}
+
+button {
+  padding: 12px;
+  font-size: 1rem;
+  font-weight: 600;
+  width: 100%;
+  margin-top: 0;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.reject-btn {
+  background-color: #ef4444;
+  color: #ffffff;
+}
+
+.reject-btn:hover {
+  background-color: #dc2626;
+}
+
+.pay-btn {
+  background-color: #0077B6;
+  color: #ffffff;
+}
+
+.pay-btn:hover {
+  background-color: #026094;
+}
+
+button:disabled {
+  background-color: #94a3b8;
+  cursor: not-allowed;
+}
+</style>
