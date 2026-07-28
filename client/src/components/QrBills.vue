@@ -1,109 +1,115 @@
 <template>
-  <div class="client-wrapper" v-if="!billshow">
-    <!-- LEFT PANE: PENDING LIST -->
-    <div class="pending-pane">
-      <div class="head">Pending Orders</div>
-      <div class="pending-list">
-        <div v-if="loading" class="empty">Loading...</div>
-        <div v-else-if="pendingOrders.length === 0" class="empty">
-          <span class="empty-icon">📭</span>
-          <p>No pending orders</p>
-        </div>
+<div class="client-wrapper" v-if="!billshow">
 
-        <div
-          v-for="o in pendingOrders"
-          :key="o.id"
-          class="pending-card"
-          :class="{ active: selectedOrder?.id === o.id }"
-          @click="loadPending(o)"
-        >
-          <div class="card-top-row">
-            <span class="order-id">#{{ o.id }}</span>
-            <span class="order-total">{{ o.total }} {{ currency }}</span>
-          </div>
-          <div class="card-mid-row">
-            <span class="customer-name">{{ o.customer || 'Walk-in Customer' }}</span>
-          </div>
-          <div class="card-bot-row">
-            <span class="muted">{{ o.items.length }} items</span>
-            <span class="muted">{{ formatDate(o.date) }}</span>
-          </div>
-        </div>
-      </div>
-    </div>
+<!-- LEFT PANE: PENDING LIST -->
+<div class="pending-pane">
+<div class="head">
+Pending Orders <span v-if="isOffline" class="offline-badge">🔌 Offline</span>
+</div>
 
-    <!-- RIGHT PANE: BILL SECTOR -->
-    <div class="client-bill">
-      <div class="bill-header">
-        <h1 id="h1">Bill #{{ selectedOrder?.id || '--' }}</h1>
-      </div>
+<div class="pending-list">
+<div v-if="loading" class="empty">Loading...</div>
+<div v-else-if="pendingOrders.length === 0" class="empty">
+<span class="empty-icon">📭</span>
+<p>No pending orders</p>
+</div>
 
-      <div class="heads">
-        <h3 id="n">Name</h3>
-        <h3 id="q">Qty</h3>
-        <h3 id="p">Price</h3>
-      </div>
+<div
+v-for="o in pendingOrders"
+:key="o.id"
+class="pending-card"
+:class="{ active: selectedOrder?.id === o.id }"
+@click="loadPending(o)"
+>
+<div class="card-top-row">
+<span class="order-id">#{{ o.id }}</span>
+<span class="order-total">{{ Number(o.total || 0).toFixed(2) }} {{ currency }}</span>
+</div>
 
-      <div class="bills">
-        <div v-if="selectedItems.length === 0" class="empty">
-          <span class="empty-icon">🧾</span>
-          <p>Select a pending order</p>
-        </div>
-        <div 
-          class="bdata" 
-          v-for="i in selectedItems" 
-          :key="i.id" 
-          @click="remove(i.id)" 
-          title="Click to remove item"
-        >
-          <p class="n">{{ i.name }}</p>
-          <p class="q">{{ i.qty }}</p>
-          <p class="p">{{ Number(i.price || 0).toFixed(2) }}</p>
-        </div>
-      </div>
+<div class="card-mid-row">
+<span class="customer-name">{{ o.customer || 'Walk-in Customer' }}</span>
+</div>
 
-      <div class="last">
-        <span id="subtotal">
-          <p>Sub Total</p>
-          <p>{{ Number(subtotal || 0).toFixed(2) }} {{ currency }}</p>
-        </span>
+<div class="card-bot-row">
+<span class="muted">{{ o.items ? o.items.length : 0 }} items</span>
+<span class="muted">{{ formatDate(o.date) }}</span>
+</div>
+</div>
+</div>
+</div>
 
-        <span id="service" class="input-span">
-          <p>Service charge %</p>
-          <input type="number" v-model.number="sc" min="0" />
-        </span>
+<!-- RIGHT PANE: BILL SECTOR -->
+<div class="client-bill">
+<div class="bill-header">
+<h1 id="h1">Bill #{{ selectedOrder?.id || '--' }}</h1>
+</div>
 
-        <span id="discount" class="input-span">
-          <p>Discount %</p>
-          <input type="number" v-model.number="rc" min="0" />
-        </span>
+<div class="heads">
+<h3 id="n">Name</h3>
+<h3 id="q">Qty</h3>
+<h3 id="p">Price</h3>
+</div>
 
-        <span id="total" class="total-span">
-          <p>Total</p>
-          <p>{{ Number(total || 0).toFixed(2) }} {{ currency }}</p>
-        </span>
+<div class="bills">
+<div v-if="selectedItems.length === 0" class="empty">
+<span class="empty-icon">🧾</span>
+<p>Select a pending order</p>
+</div>
 
-        <div class="action-buttons">
-          <button class="reject-btn" @click="reject" :disabled="saving">Reject</button>
-          <button class="pay-btn" @click="bill" :disabled="saving">{{ buttonText }}</button>
-        </div>
-      </div>
-    </div>
-  </div>
+<div 
+class="bdata" 
+v-for="i in selectedItems" 
+:key="i.id" 
+@click="remove(i.id)" 
+title="Click to remove item"
+>
+<p class="n">{{ i.name }}</p>
+<p class="q">{{ i.qty }}</p>
+<p class="p">{{ Number(i.price || 0).toFixed(2) }}</p>
+</div>
+</div>
+
+<div class="last">
+<span id="subtotal">
+<p>Sub Total</p>
+<p>{{ Number(subtotal || 0).toFixed(2) }} {{ currency }}</p>
+</span>
+
+<span id="service" class="input-span">
+<p>Service charge %</p>
+<input type="number" v-model.number="sc" min="0" />
+</span>
+
+<span id="discount" class="input-span">
+<p>Discount %</p>
+<input type="number" v-model.number="rc" min="0" />
+</span>
+
+<span id="total" class="total-span">
+<p>Total</p>
+<p>{{ Number(total || 0).toFixed(2) }} {{ currency }}</p>
+</span>
+
+<div class="action-buttons">
+<button class="reject-btn" @click="reject" :disabled="saving">Reject</button>
+<button class="pay-btn" @click="bill" :disabled="saving">{{ buttonText }}</button>
+</div>
+</div>
+</div>
+
+</div>
 </template>
 
 <script setup>
-import { onMounted, ref, computed } from 'vue';
+import { onMounted, ref, computed, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
-import { link } from '../assets/Link';
+import { link, printReceipt } from '../assets/Link';
 
-// Router & Session Constants
 const router = useRouter();
 const Token = sessionStorage.getItem('userToken');
-const shopId = sessionStorage.getItem('shopId');
-const clientUid = sessionStorage.getItem('uid') || localStorage.getItem('uid');
+const shopId = sessionStorage.getItem('shopId') || sessionStorage.getItem('shopid');
+const clientUid = Token;
 
-// Reactive State Variables
 const pendingOrders = ref([]);
 const selectedOrder = ref(null);
 const loading = ref(true);
@@ -114,8 +120,114 @@ const sc = ref(0);
 const rc = ref(0);
 const billshow = ref(false);
 const saving = ref(false);
+const isOffline = ref(!navigator.onLine);
 
-// Computed Calculations
+// --- INDEXEDDB SETUP & HELPERS ---
+const DB_NAME = 'KineticPOS_Pending_Local';
+const DB_VERSION = 1;
+
+function openLocalDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onerror = (e) => reject('IndexedDB error: ' + e.target.error);
+    request.onsuccess = (e) => resolve(e.target.result);
+    request.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains('pending_cache')) {
+        db.createObjectStore('pending_cache', { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains('offline_actions')) {
+        db.createObjectStore('offline_actions', { keyPath: 'tempId', autoIncrement: true });
+      }
+    };
+  });
+}
+
+async function cachePendingOrders(orders) {
+  try {
+    const db = await openLocalDb();
+    const tx = db.transaction(['pending_cache'], 'readwrite');
+    const store = tx.objectStore('pending_cache');
+    store.clear();
+    orders.forEach(order => store.put(order));
+  } catch (err) {
+    console.error('Failed to cache pending orders locally:', err);
+  }
+}
+
+async function loadPendingFromCache() {
+  try {
+    const db = await openLocalDb();
+    return new Promise((resolve) => {
+      const tx = db.transaction(['pending_cache'], 'readonly');
+      const store = tx.objectStore('pending_cache');
+      const req = store.getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => resolve([]);
+    });
+  } catch (err) {
+    return [];
+  }
+}
+
+async function saveActionOffline(actionData) {
+  const db = await openLocalDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(['offline_actions'], 'readwrite');
+    const store = tx.objectStore('offline_actions');
+    const req = store.add({ ...actionData, tempId: 'ACTION_' + Date.now() });
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+// --- SYNC ENGINE ---
+async function syncOfflineActions() {
+  if (!navigator.onLine) return;
+  try {
+    const db = await openLocalDb();
+    const tx = db.transaction(['offline_actions'], 'readwrite');
+    const store = tx.objectStore('offline_actions');
+    const req = store.getAll();
+
+    req.onsuccess = async () => {
+      const offlineActions = req.result;
+      if (!offlineActions || offlineActions.length === 0) return;
+
+      for (const action of offlineActions) {
+        try {
+          const response = await fetch(`${link}/orders/${action.orderId}`, {
+            method: 'PATCH',
+            headers: { 
+              'Authorization': `Bearer ${Token}`, 
+              'Content-Type': 'application/json', 
+              'shop-id': shopId,
+              'client-uid': clientUid
+            },
+            body: JSON.stringify(action.payload)
+          });
+          if (response.ok) {
+            const delTx = db.transaction(['offline_actions'], 'readwrite');
+            delTx.objectStore('offline_actions').delete(action.tempId);
+          }
+        } catch (e) {
+          console.warn('Sync pending for action due to network state.');
+        }
+      }
+    };
+  } catch (err) {
+    console.error('Error during background action sync:', err);
+  }
+}
+
+function updateNetworkStatus() {
+  isOffline.value = !navigator.onLine;
+  if (!isOffline.value) {
+    syncOfflineActions();
+    fetchPendingOrders();
+  }
+}
+
 const subtotal = computed(() => {
   return selectedItems.value.reduce((sum, item) => sum + item.price, 0);
 });
@@ -127,8 +239,10 @@ const total = computed(() => {
   return Math.max(0, stotal - reduce);
 });
 
-// Utility Functions
-const formatDate = (iso) => new Date(iso).toLocaleDateString('en-CA');
+const formatDate = (iso) => {
+  if (!iso) return '';
+  return new Date(iso).toLocaleDateString('en-CA');
+};
 
 function remove(rid) {
   selectedItems.value = selectedItems.value.filter(item => item.id !== rid);
@@ -136,36 +250,43 @@ function remove(rid) {
 
 function loadPending(o) {
   selectedOrder.value = o;
-  selectedItems.value = o.items.map(it => ({
+  selectedItems.value = (o.items || []).map(it => ({
     id: it.itemid || it.id,
     name: it.name,
     qty: it.qty,
-    price: it.price * it.qty
+    price: (Number(it.price) || 0) * (Number(it.qty) || 1)
   }));
-  sc.value = o.servicePct || 0;
-  rc.value = o.discount || 0;
+  sc.value = o.servicePct || o.sc || 0;
+  rc.value = o.discount || o.rc || 0;
 }
 
-// Order Action Handlers
 async function reject() {
   if (!selectedOrder.value) return;
   saving.value = true;
-  
-  try {
-    const response = await fetch(`${link}/orders/${selectedOrder.value.id}`, {
-      method: 'PATCH',
-      headers: { 
-        'Authorization': `Bearer ${Token}`, 
-        'Content-Type': 'application/json', 
-        'shop-id': shopId 
-      },
-      body: JSON.stringify({ 
-        status: 'cancelled',
-        staffName: 'Cashier' 
-      })
-    });
+  const payload = { 
+    status: 'cancelled',
+    billNum: selectedOrder.value.id,
+    sc: Number(sc.value) || 0,
+    rc: Number(rc.value) || 0
+  };
 
-    if (!response.ok) throw new Error(`Reject failed: ${response.status}`);
+  try {
+    if (navigator.onLine) {
+      const response = await fetch(`${link}/orders/${selectedOrder.value.id}`, {
+        method: 'PATCH',
+        headers: { 
+          'Authorization': `Bearer ${Token}`, 
+          'Content-Type': 'application/json', 
+          'shop-id': shopId,
+          'client-uid': clientUid
+        },
+        body: JSON.stringify(payload)
+      });
+      if (!response.ok) throw new Error(`Reject failed: ${response.status}`);
+    } else {
+      await saveActionOffline({ orderId: selectedOrder.value.id, payload });
+      console.log("Reject action saved locally.");
+    }
 
     pendingOrders.value = pendingOrders.value.filter(o => o.id !== selectedOrder.value.id);
     selectedOrder.value = null;
@@ -199,7 +320,10 @@ async function bill() {
     sc: Number(sc.value) || 0,
     rc: Number(rc.value) || 0,
     items: selectedItems.value.map(i => ({
-      ...i, 
+      pid: i.id || i.itemid,
+      id: i.id || i.itemid,
+      name: i.name,
+      qty: i.qty,
       price: i.qty > 0 ? i.price / i.qty : i.price
     })),
     rcvalue: Number(rc.value),
@@ -211,21 +335,44 @@ async function bill() {
   };
 
   try {
-    const res = await fetch(`${link}/orders/${selectedOrder.value.id}`, {
-      method: 'PATCH',
-      headers: {
-        'Authorization': `Bearer ${Token}`,
-        'Content-Type': 'application/json',
-        'shop-id': shopId,
-        'client-uid': clientUid
-      },
-      body: JSON.stringify(payload)
-    });
+    let finalBillNum = selectedOrder.value.id;
 
-    if (!res.ok) throw new Error(`Save failed: ${res.status}`);
-    const result = await res.json();
+    if (navigator.onLine) {
+      const res = await fetch(`${link}/orders/${selectedOrder.value.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${Token}`,
+          'Content-Type': 'application/json',
+          'shop-id': shopId,
+          'client-uid': clientUid
+        },
+        body: JSON.stringify(payload)
+      });
 
-    router.push({ name: 'billprint', state: { ...payload, billnum: result.billnum } });
+      if (!res.ok) throw new Error(`Save failed: ${res.status}`);
+      const result = await res.json();
+      if (result.billnum) finalBillNum = result.billnum;
+    } else {
+      await saveActionOffline({ orderId: selectedOrder.value.id, payload });
+      console.log("Bill action saved offline.");
+    }
+
+    const printPayload = {
+      arrays: JSON.parse(JSON.stringify(selectedItems.value)),
+      rcvalue: Number(rc.value),
+      scvalue: Number(sc.value),
+      stotal: Number(subtotal.value),
+      total: Number(total.value),
+      billnum: finalBillNum,
+      currency: currency.value
+    };
+
+    const printResult = await printReceipt(printPayload);
+    if (!printResult.success) {
+      console.warn('Printer note:', printResult.error);
+    }
+
+    router.push({ name: 'billprint', state: printPayload });
 
     pendingOrders.value = pendingOrders.value.filter(o => o.id !== selectedOrder.value.id);
     selectedOrder.value = null;
@@ -241,29 +388,48 @@ async function bill() {
   }
 }
 
-// Lifecycle Hooks
+async function fetchPendingOrders() {
+  try {
+    const res = await fetch(`${link}/pendingorders`, {
+      headers: { 'Authorization': `Bearer ${Token}`, 'shop-id': shopId, 'client-uid': clientUid }
+    });
+    if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
+    const data = await res.json();
+    pendingOrders.value = data;
+    if (data.length > 0) currency.value = data[0].currency || 'LKR';
+    await cachePendingOrders(data);
+  } catch (err) {
+    console.warn("Network fetch failed, loading pending orders from local cache...", err);
+    const cachedData = await loadPendingFromCache();
+    pendingOrders.value = cachedData;
+    if (cachedData.length > 0) currency.value = cachedData[0].currency || 'LKR';
+  }
+}
+
 onMounted(async () => {
   if (!Token) {
     router.push('/');
     return;
   }
 
-  try {
-    const res = await fetch(`${link}/pendingorders`, {
-      headers: { 'Authorization': `Bearer ${Token}`, 'shop-id': shopId }
-    });
-    
-    if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
-    const data = await res.json();
-    
-    pendingOrders.value = data;
-    if (data.length > 0) currency.value = data[0].currency || 'LKR';
-  } catch (err) {
-    console.error("Failed to load pending:", err);
-    alert("Could not load pending orders.");
-  } finally {
-    loading.value = false;
+  if (!shopId) {
+    console.warn("⚠️ Warning: shopId is missing from sessionStorage!");
   }
+
+  window.addEventListener('online', updateNetworkStatus);
+  window.addEventListener('offline', updateNetworkStatus);
+
+  loading.value = true;
+  await fetchPendingOrders();
+  loading.value = false;
+  if (navigator.onLine) {
+    syncOfflineActions();
+  }
+});
+
+onUnmounted(() => {
+  window.removeEventListener('online', updateNetworkStatus);
+  window.removeEventListener('offline', updateNetworkStatus);
 });
 </script>
 
@@ -288,7 +454,16 @@ html, body {
   box-sizing: border-box;
 }
 
-/* 1. LEFT PANE = 50% Pending List */
+.offline-badge {
+  font-size: 0.7rem;
+  background-color: #ef4444;
+  color: white;
+  padding: 2px 6px;
+  border-radius: 4px;
+  vertical-align: middle;
+  margin-left: 8px;
+}
+
 .pending-pane {
   width: 50%;
   background: #ffffff;
@@ -401,7 +576,6 @@ html, body {
   font-size: 2rem;
 }
 
-/* 2. RIGHT PANE = 50% Your Bill Sector */
 .client-bill {
   width: 50%;
   background-color: #ffffff;

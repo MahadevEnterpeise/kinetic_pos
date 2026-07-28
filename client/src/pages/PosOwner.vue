@@ -1,165 +1,180 @@
 <template>
-<div class="owner">
+  <div class="owner">
+    <!-- Mobile Menu Overlay Background -->
+    <div class="sidebar-overlay" v-if="mobileMenuOpen" @click="mobileMenuOpen = false"></div>
 
-<!-- Mobile Menu Overlay Background -->
-<div class="sidebar-overlay" v-if="mobileMenuOpen" @click="mobileMenuOpen = false"></div>
+    <!-- Sidebar Navigation -->
+    <aside :class="['sidebar', { 'mobile-open': mobileMenuOpen }]">
+      <div class="sidebar-header">
+        <h2>Kinetic Code</h2>
+        <button class="close-menu-btn" @click="mobileMenuOpen = false">&times;</button>
+      </div>
 
-<!-- Sidebar Navigation -->
-<aside :class="['sidebar', { 'mobile-open': mobileMenuOpen }]">
-<div class="sidebar-header">
-<h2>Kinetic POS</h2>
-<button class="close-menu-btn" @click="mobileMenuOpen = false">&times;</button>
-</div>
-<div class="tools">
-<a href="#dashboard" class="tool" @click="mobileMenuOpen = false">📊 Dashboard</a>
-<a href="#staff" class="tool" @click="mobileMenuOpen = false">🏢 Management</a>
-<a href="#customer" class="tool" @click="mobileMenuOpen = false">👥 Customer</a>
-<a href="#update" class="tool" @click="mobileMenuOpen = false">📦 Update</a>
-<a href="#qr" class="tool" @click="mobileMenuOpen = false">🔲 QR Generator</a>
-<a href="#mybill" class="tool" @click="mobileMenuOpen = false">🧾 My Bill</a>
-</div>
-<div class="sidebar-footer">
-<button @click="logout" id="log-btn">Log Out</button>
-</div>
-</aside>
+      <div class="tools">
+        <a href="#dashboard" class="tool" @click="mobileMenuOpen = false">📊 Dashboard</a>
+        <a href="#staff" class="tool" @click="mobileMenuOpen = false">🏢 Management</a>
+        <a href="#customer" class="tool" @click="mobileMenuOpen = false">👥 Customer</a>
+        <a href="#update" class="tool" @click="mobileMenuOpen = false">📦 Update</a>
+        <a href="#qr" class="tool" @click="mobileMenuOpen = false">🔲 QR Generator</a>
+        <a href="#mybill" class="tool" @click="mobileMenuOpen = false">🧾 My Bill</a>
+      </div>
 
-<!-- Main Container -->
-<div class="owner_cont">
-<header id="dashboard">
-<div class="header-left">
-<button class="menu-toggle-btn" @click="mobileMenuOpen = true">☰</button>
-<h3>Welcome, <span class="shop-name">{{ data.shop || 'Store' }}</span></h3>
-</div>
-<div class="header-right-actions">
-<!-- Audit Log / Notification Bell -->
-<div class="extrahead notification-bell" @click="toggleAuditDrawer" title="Activity & Audit Logs">
-🔔 <span v-if="unreadAuditCount > 0" class="badge">{{ unreadAuditCount }}</span>
-</div>
-<div class="extrahead" @click="settingsOpen = true" title="System Settings">⚙️</div>
-</div>
-</header>
+      <div class="sidebar-footer">
+        <button @click="logout" id="log-btn">Log Out</button>
+      </div>
+    </aside>
 
-<!-- Quick Metrics Cards -->
-<div class="quickdata">
-<div class="box">
-<p>Today Sales</p>
-<h3 class="metric-primary">{{ Number(data.sales || 0).toFixed(2) }} {{ currency }}</h3>
-</div>
-<div class="box">
-<p>Sell Count</p>
-<h3 class="metric-dark">{{ data.count || 0 }}</h3>
-</div>
-</div>
+    <!-- Main Container -->
+    <div class="owner_cont">
+      <header id="dashboard">
+        <div class="header-left">
+          <button class="menu-toggle-btn" @click="mobileMenuOpen = true">☰</button>
+          <h3>Welcome, <span class="shop-name">{{ data.shop || 'Store' }}</span></h3>
+        </div>
 
-<!-- Chart Section -->
-<div class="sale_chart card-panel">
-<LineChart />
-</div>
+        <div class="header-right-actions">
+          <!-- Audit Log / Notification Bell -->
+          <div class="extrahead notification-bell" @click="toggleAuditDrawer" title="Activity & Audit Logs">
+            🔔 <span v-if="unreadAuditCount > 0" class="badge">{{ unreadAuditCount }}</span>
+          </div>
+          <div class="extrahead" @click="settingsOpen = true" title="System Settings">⚙️</div>
+        </div>
+      </header>
 
-<!-- Extradata Section: Logs & Trends -->
-<div class="extradata">
-<div class="logs card-panel">
-<h5>Recent Logs</h5>
-<div class="logdata">
-<div class="loghead">
-<div class="n">Mobile</div>
-<div class="d">Date/Time</div>
-<div class="p">Price</div>
-<div class="b">Bill</div>
-</div>
-<div v-if="bills.length === 0" class="empty-text">No recent bills found</div>
-<div class="log" v-for="d in bills" :key="d.billnum">
-<div class="n">{{ d.mobile || 'N/A' }}</div>
-<div class="d">{{ d.time }}</div>
-<div class="p">{{ Number(d.price || 0).toFixed(2) }} LKR</div>
-<div class="b font-mono">{{ d.billnum }}</div>
-</div>
-</div>
-</div>
+      <!-- Quick Metrics Cards -->
+      <div class="quickdata">
+        <div class="box">
+          <p>Today Sales</p>
+          <h3 class="metric-primary">{{ Number(data.sales || 0).toFixed(2) }} {{ currency }}</h3>
+        </div>
+        <div class="box">
+          <p>Sell Count</p>
+          <h3 class="metric-dark">{{ data.count || 0 }}</h3>
+        </div>
+      </div>
 
-<div class="trends card-panel">
-<h5>Recent Trends</h5>
-<ol class="trend-list">
-<li v-if="trends.length === 0" class="empty-text">No trends available</li>
-<li v-for="(t, idx) in trends" :key="idx">{{ t.name }}</li>
-</ol>
-</div>
-</div>
+      <!-- Chart Section -->
+      <div class="sale_chart card-panel">
+        <LineChart />
+      </div>
 
-<!-- Feature Sections -->
-<div id="update" class="section-block">
-<InventoryManager/>
-</div>
+      <!-- Extradata Section: Logs & Trends -->
+      <div class="extradata">
+        <div class="logs card-panel">
+          <h5>Recent Logs</h5>
+          <div class="logdata">
+            <div class="loghead">
+              <div class="n">Mobile</div>
+              <div class="d">Date/Time</div>
+              <div class="p">Price</div>
+              <div class="b">Bill</div>
+            </div>
+            <div v-if="bills.length === 0" class="empty-text">No recent bills found</div>
+            <div class="log" v-for="d in bills" :key="d.billnum">
+              <div class="n">{{ d.mobile || 'N/A' }}</div>
+              <div class="d">{{ d.time }}</div>
+              <div class="p">{{ Number(d.price || 0).toFixed(2) }} LKR</div>
+              <div class="b font-mono">{{ d.billnum }}</div>
+            </div>
+          </div>
+        </div>
 
-<div id="customer" class="section-block">
-<CustomerComponent />
-</div>
+        <div class="trends card-panel">
+          <h5>Recent Trends</h5>
+          <ol class="trend-list">
+            <li v-if="trends.length === 0" class="empty-text">No trends available</li>
+            <li v-for="(t, idx) in trends" :key="idx">{{ t.name }}</li>
+          </ol>
+        </div>
+      </div>
 
-<!-- Management Section: Full-Width Vertical Column Stack -->
-<div id="staff" class="section-block management-container">
-<hr class="divider" />
-<h1 class="section-title">Management</h1>
-<div class="management-stack">
-<!-- Upper Component -->
-<div class="management-card card-panel">
-<h3>Register POS / Staff</h3>
-<div class="component-slot">
-<RegisterPos />
-</div>
-</div>
-</div>
-</div>
+      <!-- Feature Sections -->
+      <div id="update" class="section-block">
+        <InventoryManager/>
+      </div>
 
-<div id="qr" class="section-block">
-<QrComponent />
-</div>
+      <div id="customer" class="section-block">
+        <CustomerComponent />
+      </div>
 
-<div id="mybill" class="section-block">
-<MyBill/>
-</div>
+      <!-- Management Section: Full-Width Vertical Column Stack -->
+      <div id="staff" class="section-block management-container">
+        <hr class="divider" />
+        <h1 class="section-title">Management</h1>
+        <div class="management-stack">
+          <div class="management-card card-panel">
+            <h3>Register POS / Staff</h3>
+            <div class="component-slot">
+              <RegisterPos />
+            </div>
+          </div>
+        </div>
+      </div>
 
-</div>
+      <div id="qr" class="section-block">
+        <QrComponent />
+      </div>
 
-<!-- Settings Modal Overlay -->
-<div class="modal-overlay" v-if="settingsOpen" @click.self="settingsOpen = false">
-<div class="modal-content">
-<div class="modal-header">
-<h3>System Settings</h3>
-<button @click="settingsOpen = false" class="close-btn">&times;</button>
-</div>
-<div class="modal-body">
-<div class="setting-item">
-<span class="setting-label">Push Notifications</span>
-<label class="switch">
-<input type="checkbox" v-model="notificationsPermitted" @change="toggleNotifications" />
-<span class="slider"></span>
-</label>
-</div>
-</div>
-</div>
-</div>
+      <div id="mybill" class="section-block">
+        <MyBill/>
+      </div>
 
-<!-- Audit Log / Activity Drawer Panel -->
-<div class="drawer-overlay" v-if="auditDrawerOpen" @click="auditDrawerOpen = false"></div>
-<div :class="['audit-drawer', { 'drawer-open': auditDrawerOpen }]">
-<div class="drawer-header">
-<h3>Activity & Audit Log</h3>
-<button @click="auditDrawerOpen = false" class="close-btn">&times;</button>
-</div>
-<div class="drawer-body">
-<div v-if="auditLogs.length === 0" class="empty-text">No activities recorded yet</div>
-<div class="audit-item" v-for="log in auditLogs" :key="log.id">
-<div class="audit-top">
-<span class="audit-actor">{{ log.actor_name }} ({{ log.actor_role }})</span>
-<span class="audit-date">{{ log.created_at }}</span>
-</div>
-<div class="audit-title"><strong>{{ log.action_type }}</strong></div>
-<div class="audit-details">{{ log.details }}</div>
-</div>
-</div>
-</div>
+      <!-- Owner Action Buttons -->
+      <div>
+        <OwnerActions/>
+      </div>
+    </div>
 
-</div>
+    <!-- Settings Modal Overlay -->
+    <div class="modal-overlay" v-if="settingsOpen" @click.self="settingsOpen = false">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>System Settings</h3>
+          <button @click="settingsOpen = false" class="close-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="setting-item">
+            <span class="setting-label">Push Notifications</span>
+            <label class="switch">
+              <input type="checkbox" v-model="notificationsPermitted" @change="toggleNotifications" />
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Audit Log / Activity Drawer Panel -->
+    <div class="drawer-overlay" v-if="auditDrawerOpen" @click="auditDrawerOpen = false"></div>
+    <div :class="['audit-drawer', { 'drawer-open': auditDrawerOpen }]">
+      <div class="drawer-header">
+        <h3>Activity & Audit Log</h3>
+        <button @click="auditDrawerOpen = false" class="close-btn">&times;</button>
+      </div>
+
+      <!-- Search Input Bar -->
+      <div class="audit-search-container">
+        <input 
+          type="text" 
+          v-model="auditSearchQuery" 
+          placeholder="Search by username or action..." 
+          class="audit-search-input"
+        />
+      </div>
+
+      <div class="drawer-body">
+        <div v-if="filteredAuditLogs.length === 0" class="empty-text">No activities found</div>
+        <div class="audit-item" v-for="log in filteredAuditLogs" :key="log.id">
+          <div class="audit-top">
+            <span class="audit-actor">{{ log.actor_name }} ({{ log.actor_role }})</span>
+            <span class="audit-date">{{ log.created_at }}</span>
+          </div>
+          <div class="audit-title"><strong>{{ log.action_type }}</strong></div>
+          <div class="audit-details">{{ log.details }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup>
@@ -168,14 +183,15 @@ import CustomerComponent from '../components/CustomerComponent.vue';
 import QrComponent from '../components/QrComponent.vue';
 import { link } from '../assets/Link.js';
 import { useRouter } from 'vue-router';
-import { onMounted, onUnmounted, ref, nextTick } from 'vue';
+import { onMounted, onUnmounted, ref, computed, nextTick } from 'vue';
 import RegisterPos from '../components/RegisterPos.vue';
 import InventoryManager from '../components/InventoryManager.vue';
 import MyBill from '../components/MyBill.vue';
+import OwnerActions from '../components/OwnerActions.vue';
 
 const router = useRouter();
-const Token = ref('');
-const shopId = ref('');
+const Token = ref(sessionStorage.getItem('userToken'));
+const shopId = ref(sessionStorage.getItem('shopId'));
 const currency = ref('');
 const data = ref({});
 const bills = ref([]);
@@ -190,463 +206,501 @@ const notificationsPermitted = ref(true);
 // Audit & Real-time connection states
 const auditLogs = ref([]);
 const unreadAuditCount = ref(0);
+const auditSearchQuery = ref('');
 let socket = null;
 
+// Computed property for local audit log filtering by username or action
+const filteredAuditLogs = computed(() => {
+  if (!auditSearchQuery.value.trim()) return auditLogs.value;
+  const query = auditSearchQuery.value.toLowerCase();
+  return auditLogs.value.filter(log => 
+    (log.actor_name && log.actor_name.toLowerCase().includes(query)) ||
+    (log.action_type && log.action_type.toLowerCase().includes(query))
+  );
+});
+
 onMounted(async () => {
-Token.value = sessionStorage.getItem('userToken');
-shopId.value = sessionStorage.getItem('shopId');
+  alert(`uid is ${Token.value}`);
+  alert(`sid is ${shopId.value}`);
+  if (!Token.value || !shopId.value) {
+    router.push('/auth');
+    return;
+  }
 
-if (!Token.value) {
-router.push('/');
-return;
-}
+  try {
+    const response = await fetch(`${link}/owner`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user: Token.value, shopId: shopId.value })
+    });
 
-try {
-const response = await fetch(`${link}/owner`, {
-method: 'POST',
-headers: { 'Content-Type': 'application/json' },
-body: JSON.stringify({ user: Token.value, shopId: shopId.value })
-});
+    if (!response.ok) {
+      throw new Error('Authentication failed');
+    }
 
-if (!response.ok) {
-throw new Error('Authentication failed');
-}
+    data.value = await response.json();
+    bills.value = data.value.bills || [];
+    trends.value = data.value.trends || [];
+    currency.value = data.value.currency;
 
-data.value = await response.json();
-bills.value = data.value.bills || [];
-trends.value = data.value.trends || [];
-currency.value = data.value.currency;
+    const notifRes = await fetch(`${link}/notifications/settings`, {
+      headers: { 'Authorization': `Bearer ${Token.value}`, 'shop-id': shopId.value }
+    });
+    if (notifRes.ok) {
+      const notifData = await notifRes.json();
+      notificationsPermitted.value = notifData.notifications_permitted;
+    }
 
-const notifRes = await fetch(`${link}/notifications/settings`, {
-headers: { 'Authorization': `Bearer ${Token.value}`, 'shop-id': shopId.value }
-});
-if (notifRes.ok) {
-const notifData = await notifRes.json();
-notificationsPermitted.value = notifData.notifications_permitted;
-}
+    await fetchUnreadCount();
+    await fetchAuditLogs();
+    setupWebSocket();
+  } catch (error) {
+    console.error("Error fetching data:", error);
+  }
 
-// Initial fetch of permanent logs
-await fetchAuditLogs();
-
-// Establish WebSocket Connection for Real-Time Alerts
-setupWebSocket();
-
-} catch (error) {
-console.error("Error fetching data:", error);
-}
-
-await nextTick();
-setupScrollAnimation();
+  await nextTick();
+  setupScrollAnimation();
 });
 
 onUnmounted(() => {
-if (socket) {
-socket.close();
-}
+  if (socket) {
+    socket.close();
+  }
 });
 
+async function fetchUnreadCount() {
+  try {
+    const res = await fetch(`${link}/notifications/unread-count`, {
+      headers: {
+        'Authorization': `Bearer ${Token.value}`,
+        'shop-id': shopId.value
+      }
+    });
+    if (res.ok) {
+      const result = await res.json();
+      unreadAuditCount.value = result.count || 0;
+    }
+  } catch (err) {
+    console.error("Failed to fetch unread count", err);
+  }
+}
+
 async function fetchAuditLogs() {
-try {
-const res = await fetch(`${link}/audit-logs`, {
-headers: {
-'Authorization': `Bearer ${Token.value}`,
-'shop-id': shopId.value
-}
-});
-if (res.ok) {
-auditLogs.value = await res.json();
-}
-} catch (err) {
-console.error("Failed to fetch audit logs", err);
-}
+  try {
+    const queryParam = auditSearchQuery.value ? `?search=${encodeURIComponent(auditSearchQuery.value)}` : '';
+    const res = await fetch(`${link}/audit-logs${queryParam}`, {
+      headers: {
+        'Authorization': `Bearer ${Token.value}`,
+        'shop-id': shopId.value
+      }
+    });
+    if (res.ok) {
+      auditLogs.value = await res.json();
+    }
+  } catch (err) {
+    console.error("Failed to fetch audit logs", err);
+  }
 }
 
 function setupWebSocket() {
-const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-const wsHost = link.replace(/^https?:\/\//, '').split('/')[0];
-socket = new WebSocket(`${wsProtocol}//${wsHost}?shopId=${shopId.value}`);
+  const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsHost = link.replace(/^https?:\/\//, '').split('/')[0];
+  socket = new WebSocket(`${wsProtocol}//${wsHost}?shopId=${shopId.value}`);
 
-socket.onmessage = (event) => {
-try {
-const msg = JSON.parse(event.data);
-if (msg.type === 'AUDIT_ALERT') {
-// Increment unread counter and push top log
-unreadAuditCount.value++;
-auditLogs.value.unshift({
-id: Date.now(),
-actor_name: msg.actorName || 'System',
-actor_role: msg.actorRole || 'manager',
-action_type: msg.title,
-details: msg.details,
-created_at: new Date().toISOString().replace('T', ' ').substring(0, 19)
-});
+  socket.onmessage = (event) => {
+    try {
+      const msg = JSON.parse(event.data);
+      if (msg.type === 'AUDIT_ALERT') {
+        const role = (msg.actorRole || '').trim().toLowerCase();
 
-// Browser push notification if permitted
-if (notificationsPermitted.value && 'Notification' in window && Notification.permission === 'granted') {
-new Notification(`Shop Activity: ${msg.title}`, { body: msg.details });
-}
-}
-} catch (e) {
-console.error("WebSocket message parse error", e);
-}
-};
+        if (role !== 'owner') {
+          unreadAuditCount.value++;
+          if (notificationsPermitted.value && 'Notification' in window && Notification.permission === 'granted') {
+            new Notification(`Shop Activity: ${msg.title}`, { body: msg.details });
+          }
+        }
+
+        auditLogs.value.unshift({
+          id: Date.now(),
+          actor_name: msg.actorName || 'System',
+          actor_role: msg.actorRole || 'manager',
+          action_type: msg.title,
+          details: msg.details,
+          created_at: new Date().toISOString().replace('T', ' ').substring(0, 19)
+        });
+      }
+    } catch (e) {
+      console.error("WebSocket message parse error", e);
+    }
+  };
 }
 
-function toggleAuditDrawer() {
-auditDrawerOpen.value = !auditDrawerOpen.value;
-if (auditDrawerOpen.value) {
-unreadAuditCount.value = 0; // Clear badge counter when opened
-}
+async function toggleAuditDrawer() {
+  auditDrawerOpen.value = !auditDrawerOpen.value;
+  if (auditDrawerOpen.value) {
+    unreadAuditCount.value = 0;
+    try {
+      await fetch(`${link}/notifications/mark-read`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${Token.value}`,
+          'shop-id': shopId.value
+        }
+      });
+    } catch (err) {
+      console.error("Failed to mark notifications as read", err);
+    }
+  }
 }
 
 async function toggleNotifications() {
-if (notificationsPermitted.value && 'Notification' in window) {
-if (Notification.permission === 'denied') {
-alert("Notifications are disabled in your device settings.");
-} else if (Notification.permission === 'default') {
-const permission = await Notification.requestPermission();
-if (permission !== 'granted') {
-notificationsPermitted.value = false;
-return;
-}
-}
-}
+  if (notificationsPermitted.value && 'Notification' in window) {
+    if (Notification.permission === 'denied') {
+      alert("Notifications are disabled in your device settings.");
+    } else if (Notification.permission === 'default') {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        notificationsPermitted.value = false;
+        return;
+      }
+    }
+  }
 
-try {
-const res = await fetch(`${link}/notifications/settings`, {
-method: 'PATCH',
-headers: {
-'Authorization': `Bearer ${Token.value || Token}`,
-'Content-Type': 'application/json',
-'shop-id': shopId.value || shopId
-},
-body: JSON.stringify({ permitted: notificationsPermitted.value })
-});
+  try {
+    const res = await fetch(`${link}/notifications/settings`, {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `Bearer ${Token.value}`,
+        'Content-Type': 'application/json',
+        'shop-id': shopId.value
+      },
+      body: JSON.stringify({ permitted: notificationsPermitted.value })
+    });
 
-if (!res.ok) throw new Error("Failed to save preference");
-} catch (err) {
-console.error("Error updating notifications:", err);
-alert("Could not update notification setting.");
-notificationsPermitted.value = !notificationsPermitted.value;
-}
+    if (!res.ok) throw new Error("Failed to save preference");
+  } catch (err) {
+    console.error("Error updating notifications:", err);
+    alert("Could not update notification setting.");
+    notificationsPermitted.value = !notificationsPermitted.value;
+  }
 }
 
 function setupScrollAnimation() {
-const staffSection = document.querySelector('#staff');
-const dashboardsection = document.querySelector('#dashboard');
-if (!staffSection) return;
+  const staffSection = document.querySelector('#staff');
+  const dashboardsection = document.querySelector('#dashboard');
+  if (!staffSection) return;
 
-const observer = new IntersectionObserver((entries) => {
-entries.forEach(entry => {
-if (entry.isIntersecting) {
-entry.target.classList.add('visible');
-observer.unobserve(entry.target);
-}
-});
-}, { threshold: 0.1 });
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('visible');
+        observer.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.1 });
 
-observer.observe(staffSection);
-if (dashboardsection) observer.observe(dashboardsection);
+  observer.observe(staffSection);
+  if (dashboardsection) observer.observe(dashboardsection);
 }
 
 function logout() {
-sessionStorage.removeItem('userToken');
-sessionStorage.removeItem('shopId');
-router.push('/');
+  sessionStorage.removeItem('userToken');
+  sessionStorage.removeItem('shopId');
+  router.push('/auth');
 }
 </script>
 
 <style scoped>
 html {
-scroll-behavior: smooth;
-overflow: hidden;
-height: 100vh;
+  scroll-behavior: smooth;
+  overflow: hidden;
+  height: 100vh;
 }
 
 body {
-margin: 0;
-padding: 0;
-overflow: hidden;
-height: 100vh;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  height: 100vh;
 }
 
 .owner {
-width: 100vw;
-height: 100vh;
-display: flex;
-flex-direction: row;
-background-color: #f0f8ff;
-overflow: hidden;
-box-sizing: border-box;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: row;
+  background-color: #f0f8ff;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 /* Sidebar Styling */
 .sidebar {
-width: 260px;
-height: 100vh;
-background-color: #041528;
-display: flex;
-flex-direction: column;
-justify-content: space-between;
-flex-shrink: 0;
-transition: transform 0.3s ease-in-out;
-z-index: 100;
+  width: 260px;
+  height: 100vh;
+  background-color: #041528;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  flex-shrink: 0;
+  transition: transform 0.3s ease-in-out;
+  z-index: 100;
 }
 
 .sidebar-header {
-display: flex;
-align-items: center;
-justify-content: space-between;
-padding: 20px;
-color: #ffffff;
-border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px;
+  color: #ffffff;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .sidebar-header h2 {
-font-size: 1.2rem;
-margin: 0;
+  font-size: 1.2rem;
+  margin: 0;
 }
 
 .close-menu-btn {
-display: none;
-background: none;
-border: none;
-color: #fff;
-font-size: 1.5rem;
-cursor: pointer;
+  display: none;
+  background: none;
+  border: none;
+  color: #fff;
+  font-size: 1.5rem;
+  cursor: pointer;
 }
 
 .tools {
-padding: 20px 15px;
-display: flex;
-flex-direction: column;
-gap: 12px;
-overflow-y: auto;
-flex-grow: 1;
+  padding: 20px 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  flex-grow: 1;
 }
 
 .tool {
-padding: 12px 16px;
-color: #E4E7EB;
-text-decoration: none;
-border-radius: 8px;
-font-weight: 500;
-transition: background 0.2s, color 0.2s;
+  padding: 12px 16px;
+  color: #E4E7EB;
+  text-decoration: none;
+  border-radius: 8px;
+  font-weight: 500;
+  transition: background 0.2s, color 0.2s;
 }
 
 .tool:hover {
-background-color: rgba(0, 119, 182, 0.2);
-color: #ffffff;
+  background-color: rgba(0, 119, 182, 0.2);
+  color: #ffffff;
 }
 
 .sidebar-footer {
-padding: 20px;
-border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 #log-btn {
-width: 100%;
-padding: 10px;
-border-radius: 8px;
-border: none;
-background-color: #ef4444;
-color: white;
-font-weight: 600;
-cursor: pointer;
-transition: background 0.2s;
+  width: 100%;
+  padding: 10px;
+  border-radius: 8px;
+  border: none;
+  background-color: #ef4444;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
 }
 
 #log-btn:hover {
-background-color: #dc2626;
+  background-color: #dc2626;
 }
 
 /* Owner Content Panel */
 .owner_cont {
-flex-grow: 1;
-height: 100vh;
-overflow-y: auto;
-overflow-x: hidden;
-display: flex;
-flex-direction: column;
-align-items: center;
-padding: 20px;
-box-sizing: border-box;
-gap: 20px;
--webkit-overflow-scrolling: touch;
+  flex-grow: 1;
+  height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px;
+  box-sizing: border-box;
+  gap: 20px;
+  -webkit-overflow-scrolling: touch;
 }
 
 header {
-width: 100%;
-max-width: 1200px;
-display: flex;
-flex-direction: row;
-align-items: center;
-justify-content: space-between;
-background: #ffffff;
-padding: 15px 25px;
-border-radius: 12px;
-box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  width: 100%;
+  max-width: 1200px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  background: #ffffff;
+  padding: 15px 25px;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
 .header-left {
-display: flex;
-align-items: center;
-gap: 15px;
+  display: flex;
+  align-items: center;
+  gap: 15px;
 }
 
 .header-right-actions {
-display: flex;
-align-items: center;
-gap: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .menu-toggle-btn {
-display: none;
-background: none;
-border: none;
-font-size: 1.5rem;
-cursor: pointer;
-color: #041528;
+  display: none;
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: #041528;
 }
 
 .shop-name {
-color: #0077B6;
+  color: #0077B6;
 }
 
 .extrahead {
-font-size: 1.2rem;
-cursor: pointer;
-padding: 6px;
-border-radius: 50%;
-transition: background 0.2s;
-position: relative;
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 50%;
+  transition: background 0.2s;
+  position: relative;
 }
 
 .extrahead:hover {
-background-color: #f1f5f9;
+  background-color: #f1f5f9;
 }
 
 .notification-bell {
-display: flex;
-align-items: center;
-justify-content: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .badge {
-position: absolute;
-top: 0;
-right: 0;
-background-color: #ef4444;
-color: white;
-font-size: 0.65rem;
-padding: 2px 5px;
-border-radius: 50%;
-font-weight: bold;
+  position: absolute;
+  top: 0;
+  right: 0;
+  background-color: #ef4444;
+  color: white;
+  font-size: 0.65rem;
+  padding: 2px 5px;
+  border-radius: 50%;
+  font-weight: bold;
 }
 
 /* Quick Metrics Cards */
 .quickdata {
-display: grid;
-grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-gap: 20px;
-width: 100%;
-max-width: 1200px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 20px;
+  width: 100%;
+  max-width: 1200px;
 }
 
 .box {
-background: #ffffff;
-display: flex;
-align-items: center;
-justify-content: center;
-flex-direction: column;
-border: 1px solid #e2e8f0;
-border-radius: 12px;
-padding: 20px;
-box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
-gap: 8px;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+  gap: 8px;
 }
 
 .box p {
-margin: 0;
-color: #64748b;
-font-size: 0.9rem;
-font-weight: 500;
+  margin: 0;
+  color: #64748b;
+  font-size: 0.9rem;
+  font-weight: 500;
 }
 
 .box h3 {
-margin: 0;
-font-size: 1.5rem;
+  margin: 0;
+  font-size: 1.5rem;
 }
 
 .metric-primary {
-color: #0077B6;
+  color: #0077B6;
 }
 
 .metric-dark {
-color: #041528;
+  color: #041528;
 }
 
 /* Cards Panels */
 .card-panel {
-background: #ffffff;
-border: 1px solid #e2e8f0;
-border-radius: 12px;
-padding: 20px;
-box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
-box-sizing: border-box;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+  box-sizing: border-box;
 }
 
 .sale_chart {
-width: 100%;
-max-width: 1200px;
-box-sizing: border-box;
+  width: 100%;
+  max-width: 1200px;
+  box-sizing: border-box;
 }
 
 .extradata {
-width: 100%;
-max-width: 1200px;
-display: flex;
-flex-direction: row;
-gap: 20px;
+  width: 100%;
+  max-width: 1200px;
+  display: flex;
+  flex-direction: row;
+  gap: 20px;
 }
 
 .logs {
-flex: 2;
-display: flex;
-flex-direction: column;
+  flex: 2;
+  display: flex;
+  flex-direction: column;
 }
 
 .logs h5, .trends h5 {
-margin-top: 0;
-margin-bottom: 12px;
-color: #1e293b;
-font-size: 1rem;
+  margin-top: 0;
+  margin-bottom: 12px;
+  color: #1e293b;
+  font-size: 1rem;
 }
 
 .logdata {
-width: 100%;
-max-height: 220px;
-overflow-y: auto;
+  width: 100%;
+  max-height: 220px;
+  overflow-y: auto;
 }
 
 .loghead, .log {
-display: flex;
-flex-direction: row;
-align-items: center;
-justify-content: space-between;
-padding: 8px 4px;
-font-size: 0.85rem;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 4px;
+  font-size: 0.85rem;
 }
 
 .loghead {
-border-bottom: 2px solid #e2e8f0;
-font-weight: 600;
-color: #64748b;
+  border-bottom: 2px solid #e2e8f0;
+  font-weight: 600;
+  color: #64748b;
 }
 
 .log {
-border-bottom: 1px solid #f1f5f9;
-color: #334155;
+  border-bottom: 1px solid #f1f5f9;
+  color: #334155;
 }
 
 .n { width: 22%; }
@@ -655,195 +709,195 @@ color: #334155;
 .b { width: 26%; text-align: right; }
 
 .trends {
-flex: 1;
-display: flex;
-flex-direction: column;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 .trend-list {
-margin: 0;
-padding-left: 20px;
-color: #334155;
-font-size: 0.9rem;
-display: flex;
-flex-direction: column;
-gap: 8px;
+  margin: 0;
+  padding-left: 20px;
+  color: #334155;
+  font-size: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .empty-text {
-padding: 20px;
-text-align: center;
-color: #94a3b8;
-font-size: 0.85rem;
+  padding: 20px;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 0.85rem;
 }
 
 .font-mono {
-font-family: monospace;
+  font-family: monospace;
 }
 
 /* Management Layout: Strict Vertical Stack & Full-Width Override */
 .management-container {
-width: 100%;
-max-width: 1200px;
+  width: 100%;
+  max-width: 1200px;
 }
 
 .management-stack {
-display: flex;
-flex-direction: column;
-gap: 20px;
-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: 100%;
 }
 
 .management-card {
-display: flex;
-flex-direction: column;
-gap: 15px;
-width: 100%;
-box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .management-card h3 {
-margin: 0;
-font-size: 1.1rem;
-color: #041528;
-border-bottom: 1px solid #f1f5f9;
-padding-bottom: 8px;
+  margin: 0;
+  font-size: 1.1rem;
+  color: #041528;
+  border-bottom: 1px solid #f1f5f9;
+  padding-bottom: 8px;
 }
 
 .component-slot {
-width: 100%;
-display: flex;
-flex-direction: column;
-box-sizing: border-box;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
 }
 
 .component-slot :deep(*) {
-max-width: 100% !important;
-box-sizing: border-box !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
 }
 
 .component-slot :deep(div),
 .component-slot :deep(form),
 .component-slot :deep(section) {
-display: flex !important;
-flex-direction: column !important;
-width: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+  width: 100% !important;
 }
 
 /* Sections */
 .section-block {
-width: 100%;
-max-width: 1200px;
+  width: 100%;
+  max-width: 1200px;
 }
 
 #staff, #dashboard {
-opacity: 0;
-transform: translateY(30px);
-transition: opacity 0.5s ease, transform 0.5s ease;
+  opacity: 0;
+  transform: translateY(30px);
+  transition: opacity 0.5s ease, transform 0.5s ease;
 }
 
 #staff.visible, #dashboard.visible {
-opacity: 1;
-transform: translateY(0);
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .divider {
-border: none;
-border-top: 1px solid #cbd5e1;
-margin: 20px 0;
-width: 100%;
+  border: none;
+  border-top: 1px solid #cbd5e1;
+  margin: 20px 0;
+  width: 100%;
 }
 
 .section-title {
-font-size: 1.5rem;
-color: #041528;
-margin-bottom: 15px;
+  font-size: 1.5rem;
+  color: #041528;
+  margin-bottom: 15px;
 }
 
 /* Modal CSS */
 .modal-overlay {
-position: fixed;
-top: 0; left: 0; width: 100vw; height: 100vh;
-background: rgba(0, 0, 0, 0.5);
-display: flex;
-align-items: center;
-justify-content: center;
-z-index: 1000;
+  position: fixed;
+  top: 0; left: 0; width: 100vw; height: 100vh;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
 }
 
 .modal-content {
-background: white;
-width: 90%;
-max-width: 450px;
-border-radius: 12px;
-padding: 20px;
-box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-display: flex;
-flex-direction: column;
-gap: 15px;
+  background: white;
+  width: 90%;
+  max-width: 450px;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
 }
 
 .modal-header {
-display: flex;
-justify-content: space-between;
-align-items: center;
-border-bottom: 1px solid #eee;
-padding-bottom: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 10px;
 }
 
 .close-btn {
-background: none;
-border: none;
-font-size: 1.5rem;
-cursor: pointer;
-color: #333;
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: #333;
 }
 
 .setting-item {
-display: flex;
-align-items: center;
-justify-content: space-between;
-padding: 10px;
-background: #f9f9f9;
-border-radius: 8px;
-border: 1px solid #eee;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px;
+  background: #f9f9f9;
+  border-radius: 8px;
+  border: 1px solid #eee;
 }
 
 .setting-label {
-font-weight: 600;
-color: #333;
-font-size: 0.95rem;
+  font-weight: 600;
+  color: #333;
+  font-size: 0.95rem;
 }
 
 /* Switch toggle styling */
 .switch {
-position: relative;
-display: inline-block;
-width: 46px;
-height: 24px;
+  position: relative;
+  display: inline-block;
+  width: 46px;
+  height: 24px;
 }
 
 .switch input { opacity: 0; width: 0; height: 0; }
 
 .slider {
-position: absolute;
-cursor: pointer;
-top: 0; left: 0; right: 0; bottom: 0;
-background-color: #ccc;
-transition: .3s;
-border-radius: 24px;
+  position: absolute;
+  cursor: pointer;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background-color: #ccc;
+  transition: .3s;
+  border-radius: 24px;
 }
 
 .slider:before {
-position: absolute;
-content: "";
-height: 18px;
-width: 18px;
-left: 3px;
-bottom: 3px;
-background-color: white;
-transition: .3s;
-border-radius: 50%;
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: .3s;
+  border-radius: 50%;
 }
 
 input:checked + .slider { background-color: #0077B6; }
@@ -851,137 +905,159 @@ input:checked + .slider:before { transform: translateX(22px); }
 
 /* Audit Log Drawer Styles */
 .drawer-overlay {
-position: fixed;
-top: 0; left: 0; width: 100vw; height: 100vh;
-background: rgba(0, 0, 0, 0.4);
-z-index: 1000;
+  position: fixed;
+  top: 0; left: 0; width: 100vw; height: 100vh;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 1000;
 }
 
 .audit-drawer {
-position: fixed;
-top: 0;
-right: -400px;
-width: 380px;
-height: 100vh;
-background: white;
-box-shadow: -4px 0 15px rgba(0,0,0,0.15);
-z-index: 1001;
-display: flex;
-flex-direction: column;
-transition: right 0.3s ease-in-out;
+  position: fixed;
+  top: 0;
+  right: -400px;
+  width: 380px;
+  height: 100vh;
+  background: white;
+  box-shadow: -4px 0 15px rgba(0,0,0,0.15);
+  z-index: 1001;
+  display: flex;
+  flex-direction: column;
+  transition: right 0.3s ease-in-out;
 }
 
 .audit-drawer.drawer-open {
-right: 0;
+  right: 0;
 }
 
 .drawer-header {
-padding: 20px;
-display: flex;
-align-items: center;
-justify-content: space-between;
-border-bottom: 1px solid #e2e8f0;
-background: #041528;
-color: white;
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #e2e8f0;
+  background: #041528;
+  color: white;
 }
 
 .drawer-header h3 {
-margin: 0;
-font-size: 1.1rem;
+  margin: 0;
+  font-size: 1.1rem;
 }
 
 .drawer-header .close-btn {
-color: white;
+  color: white;
+}
+
+.audit-search-container {
+  padding: 12px 15px;
+  background: #020b14;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.audit-search-input {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid #334155;
+  background: #0f172a;
+  color: #f8fafc;
+  font-size: 0.85rem;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.audit-search-input:focus {
+  border-color: #0077B6;
 }
 
 .drawer-body {
-flex-grow: 1;
-overflow-y: auto;
-padding: 15px;
-display: flex;
-flex-direction: column;
-gap: 12px;
-background: #f8fafc;
+  flex-grow: 1;
+  overflow-y: auto;
+  padding: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: #f8fafc;
 }
 
 .audit-item {
-background: white;
-padding: 12px;
-border-radius: 8px;
-border: 1px solid #e2e8f0;
-display: flex;
-flex-direction: column;
-gap: 4px;
-box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+  background: white;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.02);
 }
 
 .audit-top {
-display: flex;
-justify-content: space-between;
-font-size: 0.75rem;
-color: #64748b;
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: #64748b;
 }
 
 .audit-actor {
-font-weight: 600;
-color: #0077B6;
+  font-weight: 600;
+  color: #0077B6;
 }
 
 .audit-title {
-font-size: 0.9rem;
-color: #1e293b;
+  font-size: 0.9rem;
+  color: #1e293b;
 }
 
 .audit-details {
-font-size: 0.85rem;
-color: #475569;
+  font-size: 0.85rem;
+  color: #475569;
 }
 
 /* Responsive Adjustments */
 .sidebar-overlay {
-display: none;
+  display: none;
 }
 
 @media (max-width: 900px) {
-.sidebar {
-position: fixed;
-top: 0;
-left: -260px;
-height: 100%;
-box-shadow: 2px 0 10px rgba(0,0,0,0.2);
-}
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: -260px;
+    height: 100%;
+    box-shadow: 2px 0 10px rgba(0,0,0,0.2);
+  }
 
-.sidebar.mobile-open {
-transform: translateX(260px);
-}
+  .sidebar.mobile-open {
+    transform: translateX(260px);
+  }
 
-.sidebar-overlay {
-display: block;
-position: fixed;
-top: 0; left: 0; width: 100vw; height: 100vh;
-background: rgba(0,0,0,0.4);
-z-index: 99;
-}
+  .sidebar-overlay {
+    display: block;
+    position: fixed;
+    top: 0; left: 0; width: 100vw; height: 100vh;
+    background: rgba(0,0,0,0.4);
+    z-index: 99;
+  }
 
-.close-menu-btn {
-display: block;
-}
+  .close-menu-btn {
+    display: block;
+  }
 
-.menu-toggle-btn {
-display: block;
-}
+  .menu-toggle-btn {
+    display: block;
+  }
 
-.extradata {
-flex-direction: column;
-}
+  .extradata {
+    flex-direction: column;
+  }
 
-.logs, .trends {
-width: 100%;
-}
+  .logs, .trends {
+    width: 100%;
+  }
 
-.audit-drawer {
-width: 100%;
-right: -100%;
-}
+  .audit-drawer {
+    width: 100%;
+    right: -100%;
+  }
 }
 </style>

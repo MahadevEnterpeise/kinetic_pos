@@ -42,10 +42,6 @@
 <p>Sell Count</p>
 <h3 class="metric-dark">{{ data.count || 0 }}</h3>
 </div>
-<div class="box">
-<p>Today Charge (1.1%)</p>
-<h3 class="metric-primary">{{ Number(data.sales * (1.1 / 100) || 0).toFixed(2) }} {{ currency }}</h3>
-</div>
 </div>
 
 <!-- Chart Section -->
@@ -162,9 +158,9 @@ onMounted(async () => {
 Token.value = sessionStorage.getItem('userToken');
 shopId.value = sessionStorage.getItem('shopId');
 managerName.value = sessionStorage.getItem('userName') || 'Manager';
-
+alert(shopId.value)
 if (!Token.value) {
-router.push('/');
+router.push('/auth');
 return;
 }
 
@@ -254,7 +250,7 @@ function logout() {
 sessionStorage.removeItem('userToken');
 sessionStorage.removeItem('shopId');
 sessionStorage.removeItem('userName');
-router.push('/');
+router.push('/auth');
 }
 </script>
 

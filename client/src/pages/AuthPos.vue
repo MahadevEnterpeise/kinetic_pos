@@ -27,7 +27,7 @@
           <option value="manager">Manager</option>
           <option value="client">Client</option>
           <option value="customer">Customer</option>
-          <option value="kineticpos">KineticPOS</option>
+          <option value="kinetic_admin">KineticPOS</option>
         </select>
       </div>
 
@@ -52,7 +52,8 @@ const loginForm = ref({
   password: '',
   usertype: ''
 });
-
+sessionStorage.removeItem('userToken');
+sessionStorage.removeItem('shopId');
 async function getin() {
   try {
     const response = await fetch(`${link}/login`, {
@@ -70,9 +71,11 @@ async function getin() {
 
     if (data.uid) {
       sessionStorage.setItem('userToken', data.uid);
-      if (data.sid) sessionStorage.setItem('shopId', data.sid);
+      sessionStorage.setItem('shopId', data.sid);
+      
     } else {
-      router.push('/');
+      alert('error')
+      router.push('/auth');
       return;
     }
 
@@ -94,7 +97,7 @@ async function getin() {
         case 'client':
           router.push('/client');
           break;
-        case 'kineticpos':
+        case 'kinetic_admin':
           router.push('/kineticpos');
           break;
         case 'manager':

@@ -1,123 +1,98 @@
 <template>
-<div class="container">
-<header>
-<h1>{{ shopName || 'Loading...' }}</h1>
-<div class="header-right-actions">
-<!-- Customer Audit Log / Notification Bell -->
-<div class="extrahead notification-bell" @click="toggleAuditDrawer" title="Order Activity & Notifications">
-🔔 <span v-if="unreadAuditCount > 0" class="badge">{{ unreadAuditCount }}</span>
+<div class="client-wrapper" v-if="!billshow">
+
+<!-- LEFT PANE: PENDING LIST -->
+<div class="pending-pane">
+<div class="head">
+Pending Orders <span v-if="isOffline" class="offline-badge">🔌 Offline</span>
 </div>
-<div class="extrahead settings-btn" @click="settingsOpen = true" title="System Settings">
-⚙️
+
+<div class="pending-list">
+<div v-if="loading" class="empty">Loading...</div>
+<div v-else-if="pendingOrders.length === 0" class="empty">
+<span class="empty-icon">📭</span>
+<p>No pending orders</p>
+</div>
+
+<div
+v-for="o in pendingOrders"
+:key="o.id"
+class="pending-card"
+:class="{ active: selectedOrder?.id === o.id }"
+@click="loadPending(o)"
+>
+<div class="card-top-row">
+<span class="order-id">#{{ o.id }}</span>
+<span class="order-total">{{ Number(o.total || 0).toFixed(2) }} {{ currency }}</span>
+</div>
+
+<div class="card-mid-row">
+<span class="customer-name">{{ o.customer || 'Walk-in Customer' }}</span>
+</div>
+
+<div class="card-bot-row">
+<span class="muted">{{ o.items ? o.items.length : 0 }} items</span>
+<span class="muted">{{ formatDate(o.date) }}</span>
 </div>
 </div>
-</header>
+</div>
+</div>
+
+<!-- RIGHT PANE: BILL SECTOR -->
+<div class="client-bill">
+<div class="bill-header">
+<h1 id="h1">Bill #{{ selectedOrder?.id || '--' }}</h1>
+</div>
+
+<div class="heads">
+<h3 id="n">Name</h3>
+<h3 id="q">Qty</h3>
+<h3 id="p">Price</h3>
+</div>
 
 <div class="bills">
-<template v-if="bills.length > 0">
-<div class="bill" v-for="(b, idx) in bills" :key="b.number || idx">
-<p>{{ b.number }}</p>
-<p>{{ b.date }}</p>
-<p>{{ b.status }}</p>
-</div>
-</template>
-<p v-else id="raw">Your bills will be shown up here</p>
+<div v-if="selectedItems.length === 0" class="empty">
+<span class="empty-icon">🧾</span>
+<p>Select a pending order</p>
 </div>
 
-<div v-if="loading" class="loader">Loading menu...</div>
-
-<div class="foods" v-else>
-<div class="search">
-<input v-model="query" placeholder="Search food here"/>
-</div>
-
-<div class="food">
 <div 
-class="item" 
-v-for="i in filteredItems" 
-:key="i.itemid || i.id" 
-@click="added(i)"
+class="bdata" 
+v-for="i in selectedItems" 
+:key="i.id" 
+@click="remove(i.id)" 
+title="Click to remove item"
 >
-<div class="data">
-<h5>{{ i.name }}</h5>
-<p>{{ i.price }} {{ currency }}</p>
-<p>Stock: {{ i.stock }}</p>
-</div>
-</div>
-<h5 id="no" v-if="filteredItems.length === 0">*No items found</h5>
-</div>
-
-<div class="added">
-<ol>
-<li class="add_items" v-for="(t, idx) in addeditems" :key="idx" @click="remove(idx)">
-{{ t.name }} - {{ t.qty }} - {{ Number(t.totalprice).toFixed(2) }}
-</li>
-</ol>
-</div>
-<button id="ord_plc_btn" @click="sendandmake()" :disabled="clicked">
-{{ clicked ? 'Processing...' : 'Place the order' }}
-</button>
-</div>
-
-<div class="compliment">
-<form @submit.prevent="submitFeedback">
-<div class="input-group">
-<label>Mobile Number</label>
-<input type="tel" placeholder="Mobile number" v-model="mobile" required/>
-</div>
-<div class="input-group">
-<label>Info</label>
-<input type="text" placeholder="Say about us" v-model="info" required/>
-</div>
-<div class="input-group">
-<label>Feedback Type</label>
-<select v-model="feedbackType" required>
-<option value="Complaint">Complaint</option>
-<option value="Suggestion">Suggestion</option>
-</select>
-</div>
-<button type="submit">Submit</button>
-</form>
-</div>
-
-<footer>
-<button @click="logout()">Logout Me</button>
-</footer>
-
-<!-- SETTINGS MODAL OVERLAY -->
-<div class="modal-overlay" v-if="settingsOpen" @click.self="settingsOpen = false">
-<div class="modal-content">
-<div class="modal-header">
-<h3>System Settings</h3>
-<button @click="settingsOpen = false" class="close-btn">&times;</button>
-</div>
-<div class="modal-body">
-<div class="setting-item">
-<span class="setting-label">Push Notifications</span>
-<label class="switch">
-<input type="checkbox" v-model="notificationsPermitted" @change="toggleNotifications" />
-<span class="slider"></span>
-</label>
-</div>
-</div>
+<p class="n">{{ i.name }}</p>
+<p class="q">{{ i.qty }}</p>
+<p class="p">{{ Number(i.price || 0).toFixed(2) }}</p>
 </div>
 </div>
 
-<!-- Customer Activity & Order Status Drawer Panel -->
-<div class="drawer-overlay" v-if="auditDrawerOpen" @click="auditDrawerOpen = false"></div>
-<div :class="['audit-drawer', { 'drawer-open': auditDrawerOpen }]">
-<div class="drawer-header">
-<h3>Order Updates & Activity</h3>
-<button @click="auditDrawerOpen = false" class="close-btn">&times;</button>
-</div>
-<div class="drawer-body">
-<div v-if="auditLogs.length === 0" class="empty-text">No order updates yet</div>
-<div class="audit-item" v-for="log in auditLogs" :key="log.id">
-<div class="audit-top">
-<span class="audit-date">{{ log.created_at }}</span>
-</div>
-<div class="audit-title"><strong>{{ log.action_type }}</strong></div>
-<div class="audit-details">{{ log.details }}</div>
+<div class="last">
+<span id="subtotal">
+<p>Sub Total</p>
+<p>{{ Number(subtotal || 0).toFixed(2) }} {{ currency }}</p>
+</span>
+
+<span id="service" class="input-span">
+<p>Service charge %</p>
+<input type="number" v-model.number="sc" min="0" />
+</span>
+
+<span id="discount" class="input-span">
+<p>Discount %</p>
+<input type="number" v-model.number="rc" min="0" />
+</span>
+
+<span id="total" class="total-span">
+<p>Total</p>
+<p>{{ Number(total || 0).toFixed(2) }} {{ currency }}</p>
+</span>
+
+<div class="action-buttons">
+<button class="reject-btn" @click="reject" :disabled="saving">Reject</button>
+<button class="pay-btn" @click="bill" :disabled="saving">{{ buttonText }}</button>
 </div>
 </div>
 </div>
@@ -126,705 +101,697 @@ v-for="i in filteredItems"
 </template>
 
 <script setup>
-import { onMounted, onUnmounted, ref, computed } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
-import { link } from '../assets/Link';
+import { onMounted, ref, computed, onUnmounted } from 'vue';
+import { useRouter } from 'vue-router';
+import { link, printReceipt } from '../assets/Link';
 
-const route = useRoute();
 const router = useRouter();
-const shopdefined = "D2574ckznL53";
-const shopId = ref(route.params.shopId || shopdefined);
+const Token = sessionStorage.getItem('userToken');
+const shopId = sessionStorage.getItem('shopId') || sessionStorage.getItem('shopid');
+const clientUid = Token;
 
-const shopName = ref('');
-const currency = ref('');
-const fooditems = ref([]);
-const query = ref('');
+const pendingOrders = ref([]);
+const selectedOrder = ref(null);
 const loading = ref(true);
-const Token = ref(sessionStorage.getItem('userToken') || '');
+const currency = ref('LKR');
+const buttonText = ref('Save & Pay');
+const selectedItems = ref([]);
+const sc = ref(0);
+const rc = ref(0);
+const billshow = ref(false);
+const saving = ref(false);
+const isOffline = ref(!navigator.onLine);
 
-// Settings state
-const settingsOpen = ref(false);
-const notificationsPermitted = ref(true);
+// --- INDEXEDDB SETUP & HELPERS ---
+const DB_NAME = 'KineticPOS_Pending_Local';
+const DB_VERSION = 1;
 
-// Audit Drawer state for customer
-const auditDrawerOpen = ref(false);
-const auditLogs = ref([]);
-const unreadAuditCount = ref(0);
+function openLocalDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onerror = (e) => reject('IndexedDB error: ' + e.target.error);
+    request.onsuccess = (e) => resolve(e.target.result);
+    request.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains('pending_cache')) {
+        db.createObjectStore('pending_cache', { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains('offline_actions')) {
+        db.createObjectStore('offline_actions', { keyPath: 'tempId', autoIncrement: true });
+      }
+    };
+  });
+}
 
-// --- Cart System ---
-const addeditems = ref([]);
+async function cachePendingOrders(orders) {
+  try {
+    const db = await openLocalDb();
+    const tx = db.transaction(['pending_cache'], 'readwrite');
+    const store = tx.objectStore('pending_cache');
+    store.clear();
+    orders.forEach(order => store.put(order));
+  } catch (err) {
+    console.error('Failed to cache pending orders locally:', err);
+  }
+}
 
-// --- Feedback form ---
-const mobile = ref('');
-const info = ref('');
-const feedbackType = ref('Suggestion');
-const clicked = ref(false);
-const bills = ref([]);
+async function loadPendingFromCache() {
+  try {
+    const db = await openLocalDb();
+    return new Promise((resolve) => {
+      const tx = db.transaction(['pending_cache'], 'readonly');
+      const store = tx.objectStore('pending_cache');
+      const req = store.getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => resolve([]);
+    });
+  } catch (err) {
+    return [];
+  }
+}
 
-let socket = null;
+async function saveActionOffline(actionData) {
+  const db = await openLocalDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(['offline_actions'], 'readwrite');
+    const store = tx.objectStore('offline_actions');
+    const req = store.add({ ...actionData, tempId: 'ACTION_' + Date.now() });
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+// --- SYNC ENGINE ---
+async function syncOfflineActions() {
+  if (!navigator.onLine) return;
+  try {
+    const db = await openLocalDb();
+    const tx = db.transaction(['offline_actions'], 'readwrite');
+    const store = tx.objectStore('offline_actions');
+    const req = store.getAll();
+
+    req.onsuccess = async () => {
+      const offlineActions = req.result;
+      if (!offlineActions || offlineActions.length === 0) return;
+
+      for (const action of offlineActions) {
+        try {
+          const response = await fetch(`${link}/orders/${action.orderId}`, {
+            method: 'PATCH',
+            headers: { 
+              'Authorization': `Bearer ${Token}`, 
+              'Content-Type': 'application/json', 
+              'shop-id': shopId,
+              'client-uid': clientUid
+            },
+            body: JSON.stringify(action.payload)
+          });
+          if (response.ok) {
+            const delTx = db.transaction(['offline_actions'], 'readwrite');
+            delTx.objectStore('offline_actions').delete(action.tempId);
+          }
+        } catch (e) {
+          console.warn('Sync pending for action due to network state.');
+        }
+      }
+    };
+  } catch (err) {
+    console.error('Error during background action sync:', err);
+  }
+}
+
+function updateNetworkStatus() {
+  isOffline.value = !navigator.onLine;
+  if (!isOffline.value) {
+    syncOfflineActions();
+    fetchPendingOrders();
+  }
+}
+
+const subtotal = computed(() => {
+  return selectedItems.value.reduce((sum, item) => sum + item.price, 0);
+});
+
+const total = computed(() => {
+  const chargeAmount = (subtotal.value * sc.value) / 100;
+  let stotal = subtotal.value + chargeAmount;
+  const reduce = (stotal * rc.value) / 100;
+  return Math.max(0, stotal - reduce);
+});
+
+const formatDate = (iso) => {
+  if (!iso) return '';
+  return new Date(iso).toLocaleDateString('en-CA');
+};
+
+function remove(rid) {
+  selectedItems.value = selectedItems.value.filter(item => item.id !== rid);
+}
+
+function loadPending(o) {
+  selectedOrder.value = o;
+  selectedItems.value = (o.items || []).map(it => {
+    const realPid = it.pid || it.itemid || it.item_id || it.id;
+    const itemQty = Number(it.qty) || 1;
+    const itemPrice = Number(it.price) || Number(it.unitPrice) || 0;
+
+    return {
+      pid: realPid,
+      id: realPid,
+      name: it.name || 'Unnamed Item',
+      qty: itemQty,
+      unitPrice: itemPrice,
+      price: itemPrice * itemQty
+    };
+  });
+  sc.value = Number(o.servicePct || o.sc || 0);
+  rc.value = Number(o.discount || o.rc || 0);
+}
+
+async function reject() {
+  if (!selectedOrder.value) return;
+  saving.value = true;
+  
+  const payload = { 
+    status: 'cancelled',
+    billNum: selectedOrder.value.id,
+    sc: Number(sc.value) || 0,
+    rc: Number(rc.value) || 0,
+    items: selectedItems.value.map(i => {
+      const resolvedPid = i.pid || i.id;
+      return {
+        pid: resolvedPid ? Number(resolvedPid) : null,
+        id: resolvedPid ? Number(resolvedPid) : null,
+        name: i.name,
+        qty: i.qty,
+        price: i.unitPrice || 0
+      };
+    })
+  };
+
+  try {
+    if (navigator.onLine) {
+      const response = await fetch(`${link}/orders/${selectedOrder.value.id}`, {
+        method: 'PATCH',
+        headers: { 
+          'Authorization': `Bearer ${Token}`, 
+          'Content-Type': 'application/json', 
+          'shop-id': shopId,
+          'client-uid': clientUid
+        },
+        body: JSON.stringify(payload)
+      });
+      if (!response.ok) throw new Error(`Reject failed: ${response.status}`);
+    } else {
+      await saveActionOffline({ orderId: selectedOrder.value.id, payload });
+      console.log("Reject action saved locally.");
+    }
+
+    pendingOrders.value = pendingOrders.value.filter(o => o.id !== selectedOrder.value.id);
+    selectedOrder.value = null;
+    selectedItems.value = [];
+  } catch (err) {
+    console.error("Reject failed:", err);
+    alert("Could not reject order.");
+  } finally {
+    saving.value = false;
+  }
+}
+
+async function bill() {
+  if (!selectedOrder.value) {
+    alert('Please select a pending order first');
+    return;
+  }
+  if (selectedItems.value.length === 0) {
+    alert('Cart is empty');
+    return;
+  }
+  if (saving.value) return;
+
+  saving.value = true;
+  buttonText.value = 'Saving...';
+
+  const payload = {
+    id: selectedOrder.value.id,
+    billNum: selectedOrder.value.id,
+    status: 'paid',
+    clientUid: clientUid,
+    sc: Number(sc.value) || 0,
+    rc: Number(rc.value) || 0,
+    items: selectedItems.value.map(i => {
+      const resolvedPid = i.pid || i.id;
+      if (!resolvedPid) {
+        console.warn("⚠️ Warning: Item is missing a valid product ID (pid):", i);
+      }
+
+      return {
+        pid: resolvedPid ? Number(resolvedPid) : null,
+        id: resolvedPid ? Number(resolvedPid) : null,
+        name: i.name,
+        qty: Number(i.qty) || 1,
+        price: Number(i.unitPrice) || (Number(i.qty) > 0 ? Number(i.price) / Number(i.qty) : Number(i.price)) || 0
+      };
+    }),
+    rcvalue: Number(rc.value),
+    scvalue: Number(sc.value),
+    stotal: Number(subtotal.value),
+    total: Number(total.value),
+    currency: String(currency.value),
+    staffName: 'Cashier'
+  };
+
+  try {
+    let finalBillNum = selectedOrder.value.id;
+
+    if (navigator.onLine) {
+      const res = await fetch(`${link}/orders/${selectedOrder.value.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${Token}`,
+          'Content-Type': 'application/json',
+          'shop-id': shopId,
+          'client-uid': clientUid
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!res.ok) throw new Error(`Save failed: ${res.status}`);
+      const result = await res.json();
+      if (result.billnum) finalBillNum = result.billnum;
+    } else {
+      await saveActionOffline({ orderId: selectedOrder.value.id, payload });
+      console.log("Bill action saved offline.");
+    }
+
+    const printPayload = {
+      arrays: JSON.parse(JSON.stringify(selectedItems.value)),
+      rcvalue: Number(rc.value),
+      scvalue: Number(sc.value),
+      stotal: Number(subtotal.value),
+      total: Number(total.value),
+      billnum: finalBillNum,
+      currency: currency.value
+    };
+
+    const printResult = await printReceipt(printPayload);
+    if (!printResult.success) {
+      console.warn('Printer note:', printResult.error);
+    }
+
+    router.push({ name: 'billprint', state: printPayload });
+
+    pendingOrders.value = pendingOrders.value.filter(o => o.id !== selectedOrder.value.id);
+    selectedOrder.value = null;
+    selectedItems.value = [];
+    rc.value = 0;
+    sc.value = 0;
+  } catch (err) {
+    console.error("Bill save failed:", err);
+    alert(err.message || "Could not save bill.");
+  } finally {
+    saving.value = false;
+    buttonText.value = 'Save & Pay';
+  }
+}
+
+async function fetchPendingOrders() {
+  try {
+    const res = await fetch(`${link}/pendingorders`, {
+      headers: { 'Authorization': `Bearer ${Token}`, 'shop-id': shopId, 'client-uid': clientUid }
+    });
+    if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
+    const data = await res.json();
+    pendingOrders.value = data;
+    if (data.length > 0) currency.value = data[0].currency || 'LKR';
+    await cachePendingOrders(data);
+  } catch (err) {
+    console.warn("Network fetch failed, loading pending orders from local cache...", err);
+    const cachedData = await loadPendingFromCache();
+    pendingOrders.value = cachedData;
+    if (cachedData.length > 0) currency.value = cachedData[0].currency || 'LKR';
+  }
+}
 
 onMounted(async () => {
-try {
-const response = await fetch(`${link}/order/${shopId.value}`, {
-method: 'GET',
-headers: { 'Content-Type': 'application/json' }
-});
-if (!response.ok) throw new Error('Failed to load menu: ' + response.status);
-const data = await response.json();
-shopName.value = data.shopName || 'Demo Shop';
-currency.value = data.currency || 'LKR';
-fooditems.value = data.items || [];
-bills.value = data.bills || [];
+  if (!Token) {
+    router.push('/');
+    return;
+  }
 
-if (Token.value) {
-const notifRes = await fetch(`${link}/notifications/settings`, {
-headers: { 'Authorization': `Bearer ${Token.value}`, 'shop-id': shopId.value }
-});
-if (notifRes.ok) {
-const notifData = await notifRes.json();
-notificationsPermitted.value = notifData.notifications_permitted;
-}
-}
+  if (!shopId) {
+    console.warn("⚠️ Warning: shopId is missing from sessionStorage!");
+  }
 
-// Initialize Native WebSocket Connection for Live Stock Sync & Order Alerts
-const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-const wsHost = link.replace(/^https?:\/\//, '').split('/')[0]; 
-socket = new WebSocket(`${wsProtocol}//${wsHost}?shopId=${shopId.value}`);
+  window.addEventListener('online', updateNetworkStatus);
+  window.addEventListener('offline', updateNetworkStatus);
 
-socket.onopen = () => {
-console.log('🟢 Connected to customer menu live socket');
-};
-
-socket.onmessage = (event) => {
-try {
-const data = JSON.parse(event.data);
-if (data.type === 'STOCK_UPDATE' && data.items) {
-fooditems.value = data.items.categories ? data.items.categories.flatMap(c => c.items) : data.items;
-} else if (data.type === 'AUDIT_ALERT') {
-// Filter or capture only order acceptance / rejection updates for customers
-if (data.title && (data.title.includes('QR Order') || data.title.includes('Accepted') || data.title.includes('Rejected'))) {
-unreadAuditCount.value++;
-auditLogs.value.unshift({
-id: Date.now(),
-action_type: data.title,
-details: data.details,
-created_at: new Date().toISOString().replace('T', ' ').substring(0, 19)
-});
-
-if (notificationsPermitted.value && 'Notification' in window && Notification.permission === 'granted') {
-new Notification(data.title, { body: data.details });
-}
-}
-}
-} catch (e) {
-console.error('Error parsing WS message', e);
-}
-};
-
-socket.onclose = () => {
-console.log('🔴 Disconnected from customer menu live socket');
-};
-
-} catch (err) {
-console.error('Full error:', err);
-} finally {
-loading.value = false;
-}
+  loading.value = true;
+  await fetchPendingOrders();
+  loading.value = false;
+  if (navigator.onLine) {
+    syncOfflineActions();
+  }
 });
 
 onUnmounted(() => {
-if (socket) {
-socket.close();
-}
+  window.removeEventListener('online', updateNetworkStatus);
+  window.removeEventListener('offline', updateNetworkStatus);
 });
-
-function toggleAuditDrawer() {
-auditDrawerOpen.value = !auditDrawerOpen.value;
-if (auditDrawerOpen.value) {
-unreadAuditCount.value = 0; // Reset counter when drawer opens
-}
-}
-
-async function toggleNotifications() {
-if (notificationsPermitted.value && 'Notification' in window) {
-if (Notification.permission === 'denied') {
-alert("Notifications are disabled in your device settings.");
-} else if (Notification.permission === 'default') {
-const permission = await Notification.requestPermission();
-if (permission !== 'granted') {
-notificationsPermitted.value = false;
-return;
-}
-}
-}
-
-try {
-const res = await fetch(`${link}/notifications/settings`, {
-method: 'PATCH',
-headers: {
-'Authorization': `Bearer ${Token.value}`,
-'Content-Type': 'application/json',
-'shop-id': shopId.value
-},
-body: JSON.stringify({ permitted: notificationsPermitted.value })
-});
-
-if (!res.ok) throw new Error("Failed to save preference");
-} catch (err) {
-console.error("Error updating notifications:", err);
-alert("Could not update notification setting.");
-notificationsPermitted.value = !notificationsPermitted.value;
-}
-}
-
-// Search functionality
-const filteredItems = computed(() => {
-if (!query.value.trim()) return fooditems.value;
-return fooditems.value.filter(i =>
-i.name.toLowerCase().includes(query.value.toLowerCase())
-);
-});
-
-// --- Cart Operations ---
-const added = (item) => {
-const targetFood = fooditems.value.find(i => (i.itemid || i.id) === (item.itemid || item.id));
-if (!targetFood || targetFood.stock <= 0) {
-alert("Sorry, this item is out of stock!");
-return;
-}
-targetFood.stock--;
-
-const cartItem = addeditems.value.find(i => i.id === (item.itemid || item.id));
-const unitPrice = Number(item.price) || 0;
-
-if (cartItem) {
-cartItem.qty++;
-cartItem.totalprice = cartItem.qty * unitPrice;
-} else {
-addeditems.value.push({
-id: item.itemid || item.id,
-itemid: item.itemid || item.id,
-name: item.name,
-qty: 1,
-totalprice: unitPrice,
-price: unitPrice,
-unitPrice: unitPrice
-});
-}
-};
-
-const remove = (idx) => {
-const itemInCart = addeditems.value[idx];
-const targetFood = fooditems.value.find(i => (i.itemid || i.id) === itemInCart.id);
-if (targetFood) targetFood.stock++;
-
-if (itemInCart.qty > 1) {
-itemInCart.qty--;
-itemInCart.totalprice = itemInCart.qty * itemInCart.unitPrice;
-} else {
-addeditems.value.splice(idx, 1);
-}
-};
-
-// --- API Submissions ---
-async function submitFeedback() {
-try {
-const response = await fetch(`${link}/addreview`, {
-method: 'POST',
-headers: { 'Content-Type': 'application/json' },
-body: JSON.stringify({
-user: 'customer_' + mobile.value,
-shopId: shopId.value,
-type: feedbackType.value,
-message: info.value
-})
-});
-if (!response.ok) throw new Error('Submit failed');
-alert('Thank you! Feedback submitted');
-mobile.value = '';
-info.value = '';
-} catch (err) {
-alert('Error: ' + err.message);
-}
-}
-
-async function sendandmake() {
-if (addeditems.value.length === 0) {
-alert('Your cart is empty!');
-return;
-}
-if (clicked.value) return;
-
-clicked.value = true;
-try {
-const response = await fetch(`${link}/bills`, {
-method: 'POST',
-headers: { 
-'Content-Type': 'application/json',
-'Authorization': Token.value ? `Bearer ${Token.value}` : '',
-'shop-id': shopId.value
-},
-body: JSON.stringify({ 
-shopId: shopId.value, 
-status: 'pending',
-items: addeditems.value.map(i => ({
-itemid: i.id,
-name: i.name,
-qty: i.qty,
-price: i.unitPrice
-}))
-})
-});
-
-if (!response.ok) throw new Error('Error while placing order');
-const data = await response.json();
-alert('Order placed successfully! Bill No: ' + (data.billnum || ''));
-addeditems.value = [];
-} catch (err) {
-alert(err.message);
-} finally {
-clicked.value = false;
-}
-}
-
-function logout() {
-sessionStorage.removeItem('userToken');
-sessionStorage.removeItem('shopId');
-router.push('/');
-}
 </script>
 
 <style scoped>
-.container {
-width: 100%;
-min-height: 100vh;
-display: flex;
-flex-direction: column;
-align-items: center;
-background-color: #f8f9fa;
-gap: 30px;
-padding-bottom: 50px;
-position: relative;
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100vh;
+  background-color: #f0f8ff;
+  overflow: hidden;
 }
 
-header {
-width: 100%;
-padding: 15px 20px;
-background: linear-gradient(135deg, #0062ff, #00c6ff);
-box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-text-align: center;
-position: relative;
-display: flex;
-align-items: center;
-justify-content: center;
-box-sizing: border-box;
+.client-wrapper {
+  width: 100vw;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  justify-content: center;
+  height: 100vh;
+  overflow: hidden;
+  background-color: #f0f8ff;
+  box-sizing: border-box;
 }
 
-.header-right-actions {
-position: absolute;
-right: 20px;
-display: flex;
-align-items: center;
-gap: 15px;
+.offline-badge {
+  font-size: 0.7rem;
+  background-color: #ef4444;
+  color: white;
+  padding: 2px 6px;
+  border-radius: 4px;
+  vertical-align: middle;
+  margin-left: 8px;
 }
 
-.extrahead {
-font-size: 1.3rem;
-cursor: pointer;
-padding: 6px;
-border-radius: 50%;
-transition: background 0.2s;
-position: relative;
-background: rgba(255, 255, 255, 0.2);
-display: flex;
-align-items: center;
-justify-content: center;
+.pending-pane {
+  width: 50%;
+  background: #ffffff;
+  border-right: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  box-sizing: border-box;
 }
 
-.extrahead:hover {
-background-color: rgba(255, 255, 255, 0.3);
+.head {
+  padding: 18px 20px;
+  background: #041528;
+  color: white;
+  flex-shrink: 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: 0.3px;
 }
 
-.notification-bell {
-display: flex;
-align-items: center;
-justify-content: center;
+.pending-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background-color: #f8fafc;
 }
 
-.badge {
-position: absolute;
-top: -5px;
-right: -5px;
-background-color: #ef4444;
-color: white;
-font-size: 0.65rem;
-padding: 2px 5px;
-border-radius: 50%;
-font-weight: bold;
+.pending-card {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 14px 16px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
-h1 {
-font-family: 'Inter', sans-serif;
-font-weight: 700;
-color: white;
-margin: 0;
-letter-spacing: 1px;
+.pending-card:hover { 
+  border-color: #0077B6; 
+  background: #f0f8ff; 
 }
 
-.foods {
-width: 95%;
-max-width: 600px;
-background: white;
-box-shadow: 0 4px 20px rgba(0, 123, 255, 0.15);
-border-radius: 20px;
-padding: 20px;
-max-height: 400px;
-overflow-y: auto;
+.pending-card.active { 
+  border-color: #0077B6; 
+  background: #e6f4fb; 
+  box-shadow: 0 0 0 2px rgba(0, 119, 182, 0.2); 
 }
 
-.food {
-width: 100%;
-display: flex;
-flex-direction: row;
-flex-wrap: wrap;
-align-items: start;
-justify-content: flex-start;
-gap: 10px;
+.card-top-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
-.search {
-position: sticky;
-top: 0;
-background: white;
-padding-bottom: 15px;
-z-index: 10;
+.order-id {
+  font-weight: 700;
+  color: #041528;
+  font-size: 0.95rem;
 }
 
-input, select {
-width: 100%;
-box-sizing: border-box;
-padding: 12px 20px;
-border: 2px solid #e1e1e1;
-border-radius: 12px;
-outline: none;
-transition: 0.3s;
+.order-total {
+  font-weight: 700;
+  color: #0077B6;
+  font-size: 0.95rem;
 }
 
-input:focus {
-border-color: #007bff;
+.card-mid-row {
+  display: flex;
+  justify-content: space-between;
 }
 
-.item {
-display: flex;
-flex-direction: column;
-align-items: center;
-justify-content: center;
-gap: 4px;
-padding: 8px;
-height: 100px;
-width: 100px;
-border-radius: 12px;
-border: 1px solid #0062ff;
-cursor: pointer;
-background: white;
+.customer-name {
+  font-weight: 600;
+  color: #334155;
+  font-size: 0.9rem;
 }
 
-.data h5 {
-margin: 0;
-color: #2d3436;
-font-size: 0.9rem;
-text-align: center;
+.card-bot-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 2px;
 }
 
-.data p {
-margin: 2px 0;
-font-size: 0.8rem;
-color: #636e72;
-text-align: center;
+.muted { 
+  color: #64748b; 
+  font-size: 0.8rem; 
 }
 
-.compliment {
-width: 95%;
-max-width: 600px;
-background: white;
-padding: 25px;
-border-radius: 20px;
-box-shadow: 0 4px 20px rgba(0, 123, 255, 0.15);
+.empty { 
+  padding: 40px; 
+  text-align: center; 
+  color: #94a3b8; 
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.95rem;
 }
 
-form {
-display: flex;
-flex-direction: column;
-gap: 15px;
+.empty-icon {
+  font-size: 2rem;
 }
 
-.input-group {
-display: flex;
-flex-direction: column;
-gap: 5px;
+.client-bill {
+  width: 50%;
+  background-color: #ffffff;
+  color: #1e293b;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
 }
 
-label {
-font-weight: 600;
-font-size: 0.85rem;
-color: #636e72;
-text-transform: uppercase;
+.bill-header {
+  padding: 18px 20px 0 20px;
+  background: #ffffff;
+  flex-shrink: 0;
+}
+
+#h1 {
+  width: 100%;
+  margin: 0;
+  font-size: 1.15rem;
+  color: #041528;
+  font-weight: 600;
+}
+
+.heads {
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  flex-shrink: 0;
+  border-bottom: 2px solid #e2e8f0;
+  box-sizing: border-box;
+  background: #ffffff;
+}
+
+.heads h3 {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #64748b;
+  font-weight: 600;
+}
+
+#n { width: 50%; text-align: left; }
+#q { text-align: center; width: 15%; }
+#p { text-align: right; width: 35%; }
+
+.bills {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  width: 100%;
+  padding: 0 20px;
+  box-sizing: border-box;
+}
+
+.bdata {
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 4px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  border-bottom: 1px solid #f1f5f9;
+  transition: background 0.15s;
+}
+
+.bdata:hover { 
+  background: rgba(239, 68, 68, 0.05); 
+  border-radius: 6px;
+}
+
+.n { 
+  width: 50%; 
+  text-align: left; 
+  overflow: hidden; 
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #334155;
+  font-weight: 500;
+}
+
+.q { 
+  overflow: hidden; 
+  text-align: center; 
+  width: 15%; 
+  color: #64748b;
+}
+
+.p { 
+  overflow: hidden; 
+  text-align: right; 
+  width: 35%; 
+  color: #1e293b;
+  font-weight: 600;
+}
+
+.last {
+  position: sticky;
+  bottom: 0;
+  background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+  padding: 15px 20px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.last span {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  font-size: 0.9rem;
+  color: #475569;
+  font-weight: 500;
+}
+
+.input-span input { 
+  width: 65px; 
+  padding: 4px;
+  text-align: center; 
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  background: #ffffff;
+  color: #1e293b;
+  outline: none;
+}
+
+.input-span input:focus {
+  border-color: #0077B6;
+}
+
+.total-span {
+  font-size: 1.1rem !important;
+  font-weight: 700 !important;
+  color: #041528 !important;
+  border-top: 1px dashed #cbd5e1;
+  padding-top: 8px;
+  margin-top: 2px;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  margin-top: 4px;
 }
 
 button {
-background: #007bff;
-color: white;
-padding: 15px;
-border: none;
-border-radius: 12px;
-font-weight: bold;
-cursor: pointer;
-margin-top: 10px;
+  padding: 12px;
+  font-size: 1rem;
+  font-weight: 600;
+  width: 100%;
+  margin-top: 0;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.2s;
 }
 
-#no {
-color: gray;
-text-align: center;
-padding: 20px;
-width: 100%;
+.reject-btn {
+  background-color: #ef4444;
+  color: #ffffff;
 }
 
-.loader {
-text-align: center;
-padding: 40px;
-color: #007bff;
+.reject-btn:hover {
+  background-color: #dc2626;
 }
 
-.added {
-height: 100px;
-width: 100%;
-overflow-y: scroll;
-margin-top: 10px;
+.pay-btn {
+  background-color: #0077B6;
+  color: #ffffff;
 }
 
-#ord_plc_btn {
-width: 100%;
-background-color: #0062ff;
-border: none;
-border-radius: 999px;
+.pay-btn:hover {
+  background-color: #026094;
 }
 
-.bills {
-height: 100px;
-width: 90%;
-overflow-y: scroll;
-display: flex;
-flex-direction: column;
-align-items: center;
-justify-content: start;
-border: 2px dashed #2d3436;
-border-radius: 12px;
-background: white;
-}
-
-.bill {
-display: flex;
-flex-direction: row;
-align-items: center;
-justify-content: space-evenly;
-width: 100%;
-padding: 10px;
-border-bottom: 1px solid #eee;
-}
-
-#raw {
-color: gray;
-margin: auto;
-}
-
-footer button {
-background: #636e72;
-}
-
-/* Modal CSS */
-.modal-overlay {
-position: fixed;
-top: 0; left: 0; width: 100vw; height: 100vh;
-background: rgba(0, 0, 0, 0.5);
-display: flex;
-align-items: center;
-justify-content: center;
-z-index: 1000;
-}
-
-.modal-content {
-background: white;
-width: 90%;
-max-width: 450px;
-border-radius: 12px;
-padding: 20px;
-box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-display: flex;
-flex-direction: column;
-gap: 15px;
-}
-
-.modal-header {
-display: flex;
-justify-content: space-between;
-align-items: center;
-border-bottom: 1px solid #eee;
-padding-bottom: 10px;
-}
-
-.close-btn {
-background: none;
-border: none;
-font-size: 1.5rem;
-cursor: pointer;
-color: #333;
-}
-
-.modal-body {
-display: flex;
-flex-direction: column;
-gap: 15px;
-max-height: 60vh;
-overflow-y: auto;
-}
-
-.setting-item {
-display: flex;
-align-items: center;
-justify-content: space-between;
-padding: 10px;
-background: #f9f9f9;
-border-radius: 8px;
-border: 1px solid #eee;
-}
-
-.setting-label {
-font-weight: 600;
-color: #333;
-font-size: 0.95rem;
-}
-
-/* Switch toggle styling */
-.switch {
-position: relative;
-display: inline-block;
-width: 46px;
-height: 24px;
-}
-
-.switch input { opacity: 0; width: 0; height: 0; }
-
-.slider {
-position: absolute;
-cursor: pointer;
-top: 0; left: 0; right: 0; bottom: 0;
-background-color: #ccc;
-transition: .3s;
-border-radius: 24px;
-}
-
-.slider:before {
-position: absolute;
-content: "";
-height: 18px;
-width: 18px;
-left: 3px;
-bottom: 3px;
-background-color: white;
-transition: .3s;
-border-radius: 50%;
-}
-
-input:checked + .slider { background-color: #0077B6; }
-input:checked + .slider:before { transform: translateX(22px); }
-
-/* Customer Audit Drawer Styles */
-.drawer-overlay {
-position: fixed;
-top: 0; left: 0; width: 100vw; height: 100vh;
-background: rgba(0, 0, 0, 0.4);
-z-index: 1000;
-}
-
-.audit-drawer {
-position: fixed;
-top: 0;
-right: -400px;
-width: 380px;
-height: 100vh;
-background: white;
-box-shadow: -4px 0 15px rgba(0,0,0,0.15);
-z-index: 1001;
-display: flex;
-flex-direction: column;
-transition: right 0.3s ease-in-out;
-}
-
-.audit-drawer.drawer-open {
-right: 0;
-}
-
-.drawer-header {
-padding: 20px;
-display: flex;
-align-items: center;
-justify-content: space-between;
-border-bottom: 1px solid #e2e8f0;
-background: #0062ff;
-color: white;
-}
-
-.drawer-header h3 {
-margin: 0;
-font-size: 1.1rem;
-}
-
-.drawer-header .close-btn {
-color: white;
-}
-
-.drawer-body {
-flex-grow: 1;
-overflow-y: auto;
-padding: 15px;
-display: flex;
-flex-direction: column;
-gap: 12px;
-background: #f8fafc;
-}
-
-.audit-item {
-background: white;
-padding: 12px;
-border-radius: 8px;
-border: 1px solid #e2e8f0;
-display: flex;
-flex-direction: column;
-gap: 4px;
-box-shadow: 0 1px 3px rgba(0,0,0,0.02);
-}
-
-.audit-top {
-display: flex;
-justify-content: flex-end;
-font-size: 0.75rem;
-color: #64748b;
-}
-
-.audit-title {
-font-size: 0.9rem;
-color: #1e293b;
-}
-
-.audit-details {
-font-size: 0.85rem;
-color: #475569;
-}
-
-@media (max-width: 900px) {
-.audit-drawer {
-width: 100%;
-right: -100%;
-}
+button:disabled {
+  background-color: #94a3b8;
+  cursor: not-allowed;
 }
 </style>

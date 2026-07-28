@@ -109,9 +109,9 @@ async function toggleNotifications() {
     const res = await fetch(`${link}/notifications/settings`, {
       method: 'PATCH',
       headers: {
-        'Authorization': `Bearer ${Token.value}`,
+        'Authorization': `Bearer ${Token}`, // Fixed: Removed .value
         'Content-Type': 'application/json',
-        'shop-id': shopId.value
+        'shop-id': shopId // Fixed: Removed .value
       },
       body: JSON.stringify({ permitted: notificationsPermitted.value })
     });
@@ -122,9 +122,9 @@ async function toggleNotifications() {
     }
   } catch (err) {
     console.error("Error updating notifications:", err);
-    alert(`Could not update setting: ${err.message}`); // This will show the actual backend error!
+    alert(`Could not update setting: ${err.message}`);
     notificationsPermitted.value = !notificationsPermitted.value;
   }
 }
-
 </script>
+

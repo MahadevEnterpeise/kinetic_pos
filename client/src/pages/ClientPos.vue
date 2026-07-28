@@ -90,7 +90,7 @@ let socket = null;
 
 onMounted(async () => {
   if(!Token){
-    router.push('/');
+    router.push('/auth');
   } else {
     try {
       const notifRes = await fetch(`${link}/notifications/settings`, {
@@ -177,7 +177,7 @@ async function toggleNotifications() {
 function logout(){
   sessionStorage.removeItem('userToken');
   sessionStorage.removeItem('shopId');
-  router.push('/');
+  router.push('/auth');
 }
 
 function selectNew(a){

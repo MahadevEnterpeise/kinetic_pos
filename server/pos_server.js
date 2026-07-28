@@ -1,846 +1,1022 @@
-const { generateUID, generateSID, generateSessionToken } = require('./utils/idGenerator');
-const dbActions = require('./db/dbActions');
+//Here is the fully rewritten and updated server.js file. It integrates all the modular routes, WebSocket handlers, cron jobs, and the corrected PayHere webhook notification route to properly process payments, capture tokens, and record transaction history.
+/**
+ * ============================================================================
+ * KINETIC CODE POS - ENTERPRISE BACKEND SERVICE (MODULARIZED ARCHITECTURE)
+ * ============================================================================
+ * Architecture: Node.js, Express.js, WebSockets (ws), MySQL, Node-Cron
+ * Description: Fully modularized, enterprise-grade backend core handling real-time
+ * inventory synchronization, role-based access control (RBAC), auditing, 
+ * automated monthly commission sweeps, PayHere billing integrations, and 
+ * asynchronous email report generation.
+ * ============================================================================
+ */
+
+// ============================================================================
+// 1. MODULE IMPORTS & DEPENDENCY INITIALIZATION
+// ============================================================================
+
 const express = require('express');
+const http = require('http');
+const { WebSocketServer } = require('ws');
 const cors = require('cors');
 const cron = require('node-cron');
 const crypto = require('crypto');
-const http = require('http');
-const { WebSocketServer } = require('ws');
+const fs = require('fs');
+const path = require('path');
+const nodemailer = require('nodemailer');
+
+// Internal Database & Utility Actions
+const dbActions = require('./db/dbActions');
+
+// ============================================================================
+// 2. SERVER & APPLICATION CONFIGURATION
+// ============================================================================
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
+const API_PREFIX = '/api';
 
-// Middleware
+// Core Express Middleware Setup
 app.use(cors());
 app.use(express.json());
 
-// Base URL path prefix matching your Vue link.js config
-const apiPrefix = '/api';
-
-// Create HTTP server and attach WebSocket Server
+// HTTP Server & WebSocket Subsystem Integration
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-// Store active shop connections by shopId
+// Active WebSocket Connection Registry mapped by Shop ID (sid)
 const shopClients = new Map();
 
+// ============================================================================
+// 3. WEBSOCKET REAL-TIME CONNECTION MANAGEMENT & BROADCAST UTILITIES
+// ============================================================================
+
 wss.on('connection', (ws, req) => {
-  const urlParams = new URLSearchParams(req.url.split('?')[1]);
-  const shopId = urlParams.get('shopId');
+    const urlParams = new URLSearchParams(req.url.split('?')[1]);
+    const shopId = urlParams.get('shopId');
 
-  if (shopId) {
-    if (!shopClients.has(shopId)) {
-      shopClients.set(shopId, new Set());
+    if (shopId) {
+        if (!shopClients.has(shopId)) {
+            shopClients.set(shopId, new Set());
+        }
+        shopClients.get(shopId).add(ws);
+
+        ws.on('close', () => {
+            shopClients.get(shopId).delete(ws);
+            if (shopClients.get(shopId).size === 0) {
+                shopClients.delete(shopId);
+            }
+        });
     }
-    shopClients.get(shopId).add(ws);
-
-    ws.on('close', () => {
-      shopClients.get(shopId).delete(ws);
-      if (shopClients.get(shopId).size === 0) {
-        shopClients.delete(shopId);
-      }
-    });
-  }
 });
 
-// Helper function to broadcast new orders to the specific POS tablet
+/**
+ * Broadcasts new order alerts to connected shop POS tablets.
+ */
 function notifyShopTablet(shopId, billnum) {
-  if (shopClients.has(shopId)) {
-    for (const client of shopClients.get(shopId)) {
-      if (client.readyState === client.OPEN) {
-        client.send(JSON.stringify({ type: 'NEW_ORDER', billnum }));
-      }
+    if (shopClients.has(shopId)) {
+        for (const client of shopClients.get(shopId)) {
+            if (client.readyState === client.OPEN) {
+                client.send(JSON.stringify({ type: 'NEW_ORDER', billnum }));
+            }
+        }
     }
-  }
 }
 
-// Helper function to broadcast real-time stock updates & order resolutions to customer browsers
+/**
+ * Broadcasts real-time inventory stock alterations to client browsers.
+ */
 function broadcastStockUpdate(shopId, items) {
-  if (shopClients.has(shopId)) {
-    for (const client of shopClients.get(shopId)) {
-      if (client.readyState === client.OPEN) {
-        client.send(JSON.stringify({ type: 'STOCK_UPDATE', items }));
-      }
+    if (shopClients.has(shopId)) {
+        for (const client of shopClients.get(shopId)) {
+            if (client.readyState === client.OPEN) {
+                client.send(JSON.stringify({ type: 'STOCK_UPDATE', items }));
+            }
+        }
     }
-  }
 }
 
-// Helper function to broadcast audit log / system actions to the shop owner and connected customers in real-time
+/**
+ * Broadcasts audit trails and administrative actions across connected sessions.
+ */
 function broadcastAuditAlert(shopId, title, details, actorName, actorRole) {
-  if (shopClients.has(shopId)) {
-    for (const client of shopClients.get(shopId)) {
-      if (client.readyState === client.OPEN) {
-        client.send(JSON.stringify({ 
-          type: 'AUDIT_ALERT', 
-          title, 
-          details, 
-          actorName, 
-          actorRole,
-          timestamp: new Date().toISOString()
-        }));
-      }
+    if (shopClients.has(shopId)) {
+        for (const client of shopClients.get(shopId)) {
+            if (client.readyState === client.OPEN) {
+                client.send(JSON.stringify({ 
+                    type: 'AUDIT_ALERT', 
+                    title, 
+                    details, 
+                    actorName, 
+                    actorRole,
+                    timestamp: new Date().toISOString()
+                }));
+            }
+        }
     }
-  }
 }
 
-// Utility to generate MD5 hash required by PayHere
+// ============================================================================
+// 4. SECURITY, CRYPTOGRAPHY & CONTEXT MIDDLEWARE
+// ============================================================================
+
+/**
+ * Utility to generate an MD5 cryptographic hash required by PayHere API gateways.
+ */
 function generateMd5Hash(input) {
-  return crypto.createHash('md5').update(input).digest('hex').toUpperCase();
+    return crypto.createHash('md5').update(input).digest('hex').toUpperCase();
 }
 
-// Helper to extract verified user UID from Authorization Bearer token header or request body
+/**
+ * Extracts and resolves the client User ID (UID) from authorization headers or payload bodies.
+ */
 function getClientUidFromRequest(req) {
-  const authHeader = req.headers['authorization'];
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    return req.headers['client-uid'] || req.body?.clientUid || req.body?.uid || null;
-  }
-  return req.body?.uid || req.body?.clientUid || null;
-}
-
-// Helper function to calculate monthly subscription fee with 1.1% sales commission capped at 9999 (No base fee)
-function calculateMonthlySubscriptionFee(totalMonthlySales) {
-  const percentageFee = (totalMonthlySales * 1.1) / 100;
-  let dynamicFee = percentageFee;
-  if (dynamicFee > 9999.00) {
-    dynamicFee = 9999.00; 
-  }
-  return dynamicFee;
-}
-
-
-// =========================================================================
-// === MIDDLEWARE TO RESOLVE USER & ACTOR CONTEXT SECURELY ===
-// =========================================================================
-
-async function resolveActorContext(req, res, next) {
-  try {
-    const shopId = req.headers['shop-id'] || req.body?.shopId;
-    
-    // The frontend sends the user UID under various fields (like 'token' or 'clientUid')
-    const uid = req.body?.uid || req.body?.clientUid || req.body?.token || req.headers['client-uid'] || req.headers['uid'];
-    const requestedRole = req.body?.actorRole || req.body?.usertype;
-
-    // 1. If explicit frontend role is 'client' (Cashier) or payload explicitly flags a cashier identity, honor it immediately
-    if (requestedRole === 'client') {
-      req.actorInfo = {
-        name: req.body?.actorName || 'Cashier',
-        role: 'client'
-      };
-      next();
-      return;
+    const authHeader = req.headers['authorization'];
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        return req.headers['client-uid'] || req.headers['uid'] || req.body?.clientUid || req.body?.uid || null;
     }
+    return req.body?.uid || req.body?.clientUid || req.headers['client-uid'] || req.headers['uid'] || null;
+}
 
-    // 2. Resolve identity directly via the UID passed from the frontend (whether labeled as uid, clientUid, or token)
-    if (uid && dbActions.getUserByUid) {
-      const userRecord = await dbActions.getUserByUid(uid);
-      if (userRecord) {
-        let role = userRecord.usertype;
+/**
+ * Calculates dynamic monthly platform service fees based on sales volume.
+ */
+function calculateMonthlySubscriptionFee(totalMonthlySales) {
+    const percentageFee = (totalMonthlySales * 1.1) / 100;
+    let dynamicFee = percentageFee;
+    if (dynamicFee > 14999.00) {
+        dynamicFee = 14999.00; 
+    }
+    return dynamicFee;
+}
+
+/**
+ * Middleware: Resolves actor context (Name, Role, Permissions) securely per request.
+ */
+async function resolveActorContext(req, res, next) {
+    try {
+        const shopId = req.headers['shop-id'] || req.body?.shopId;
+        const actorUid = req.headers['client-uid'] || req.headers['uid'] || req.body?.actorUid || req.body?.clientUid || req.body?.uid;
+
+        if (actorUid && dbActions.getUserByUid) {
+            const userRecord = await dbActions.getUserByUid(actorUid);
+            if (userRecord) {
+                let role = userRecord.usertype;
+                let actorName = userRecord.name || (role === 'owner' ? 'Shop Owner' : role === 'manager' ? 'Store Manager' : 'Cashier');
+
+                req.actorInfo = { name: actorName, role: role };
+                return next();
+            }
+        }
+
+        if (req.body?.actorRole === 'client' || req.query?.actorRole === 'client') {
+            req.actorInfo = { name: req.body?.actorName || req.query?.actorName || 'Customer', role: 'client' };
+            return next();
+        }
+
         req.actorInfo = {
-          name: userRecord.name || req.body?.actorName || (role === 'client' ? 'Cashier' : 'Staff Member'),
-          role: role === 'client' ? 'client' : (role || 'manager')
+            name: req.body?.actorName || 'Shop Owner',
+            role: req.body?.actorRole || 'owner'
         };
         next();
-        return;
-      }
+    } catch (error) {
+        console.error('❌ Error resolving actor context:', error.message);
+        req.actorInfo = { name: 'Shop Owner', role: 'owner' };
+        next();
     }
-
-    // 3. Fallback default strictly reserved if NO valid user ID was supplied
-    req.actorInfo = {
-      name: req.body?.actorName || 'Shop Owner',
-      role: req.body?.actorRole || 'owner'
-    };
-    next();
-  } catch (error) {
-    console.error('❌ Error resolving actor context:', error.message);
-    req.actorInfo = { name: 'Shop Owner', role: 'owner' };
-    next();
-  }
 }
 
+// ============================================================================
+// 5. MODULAR ROUTE CONTROLLERS & MOUNTING
+// ============================================================================
 
-// =========================================================================
-// === API ROUTES ===
-// =========================================================================
-// =========================================================================
-// === BACKEND ENDPOINT FOR FRONTEND-TRIGGERED AUDIT LOGS ===
-// =========================================================================
+const router = express.Router();
 
-app.post('/addAuditLog', resolveActorContext, async (req, res) => {
-  try {
-    const shopId = req.headers['shop-id'] || req.body?.shopId;
-    const { action, details, category } = req.body;
-
-    if (!shopId) {
-      return res.status(400).json({ error: 'Shop ID is required for audit logging' });
-    }
-
-    // req.actorInfo is securely populated by your resolveActorContext middleware
-    const actorName = req.actorInfo?.name || 'Shop Owner';
-    const actorRole = req.actorInfo?.role || 'owner';
-    const actionCategory = category || 'USER_MANAGEMENT';
-    const actionType = action || 'GENERAL_ACTION';
-    const actionDetails = details || 'An action was performed';
-
-    // Save using your existing dbActions function
-    const success = await dbActions.saveAuditLog(
-      shopId,
-      actorName,
-      actorRole,
-      actionCategory,
-      actionType,
-      actionDetails
-    );
-
-    if (!success) {
-      return res.status(500).json({ error: 'Failed to record audit log' });
-    }
-
-    return res.status(200).json({ success: true, message: 'Audit log recorded successfully' });
-  } catch (error) {
-    console.error('❌ Error in /addAuditLog endpoint:', error.message);
-    return res.status(500).json({ error: error.message });
-  }
+// --- Diagnostic & Testing Routes ---
+router.post('/data', (req, res) => {
+    res.status(200).json({ message: 'Data received successfully!', yourData: req.body });
 });
 
-app.post(`${apiPrefix}/data`, (req, res) => {
-  const receivedData = req.body; 
-  res.status(200).json({
-    message: 'Data received successfully!',
-    yourData: receivedData
-  });
+// --- Authentication & Session Management ---
+router.post('/login', async (req, res) => {
+    try {
+        const { username, password, usertype } = req.body; 
+        if (!username || !password || !usertype) {
+            return res.status(400).json({ message: 'error', error: 'Credentials and usertype are required.' });
+        }
+
+        const sessionData = await dbActions.processLogin(username, password, usertype);
+        if (!sessionData) {
+            await dbActions.saveLogData(username, password, usertype, "failed");
+            return res.status(401).json({ message: 'error', error: 'Invalid credentials or account suspended (HOLD).' });
+        }
+
+        await dbActions.saveLogData(username, password, usertype, "success");
+
+        const responsePayload = { message: 'success', uid: sessionData.uid, Token: sessionData.token };
+        if (['owner', 'client', 'kineticpos', 'manager'].includes(usertype)) {
+            responsePayload.sid = sessionData.sid;
+        }
+
+        res.status(200).json(responsePayload);
+    } catch (error) {
+        console.error('❌ Login route fatal crash:', error.message);
+        res.status(500).json({ message: 'error', error: 'Internal server error during login.' });
+    }
 });
 
-app.post(`${apiPrefix}/login`, async (req, res) => {
-  try {
-    const { username, password, usertype } = req.body; 
-    if (!username || !password || !usertype) {
-      return res.status(400).json({ 
-        message: 'error', 
-        error: 'Mobile/Username, password, and usertype are required.' 
-      });
-    }
+router.post('/register', resolveActorContext, async (req, res) => {
+try {
+const userData = req.body;
+const { role: creatorRole } = req.actorInfo;
 
-    const sessionData = await dbActions.processLogin(username, password, usertype);
-    if (!sessionData) {
-      await dbActions.saveLogData(username, password, usertype, "failed");
-      return res.status(401).json({ 
-        message: 'error', 
-        error: 'Invalid credentials or your account is currently suspended (HOLD).' 
-      });
-    }
+// 1. Enforce hierarchy restrictions based on req.actorInfo
+if (creatorRole === 'manager' && (userData.usertype === 'owner' || userData.usertype === 'kineticpos' || userData.usertype === 'kinetic_admin')) {
+return res.status(403).json({ success: false, error: 'Managers are not permitted to create owners or system administrators.' });
+}
+if (creatorRole === 'owner' && (userData.usertype === 'kineticpos' || userData.usertype === 'kinetic_admin')) {
+return res.status(403).json({ success: false, error: 'Owners are not permitted to create system administrators.' });
+}
 
-    await dbActions.saveLogData(username, password, usertype, "success");
+// 2. Proceed with registration
+const registrationResult = await dbActions.createNewUser(userData);
 
-    if (usertype === 'owner' || usertype === 'client' || usertype === 'kineticpos' || usertype === 'manager') {
-      console.log(sessionData.sid);
-      console.log(sessionData.uid);
-      console.log(sessionData.token);
-      res.status(200).json({
-        message: 'success',
-        uid: sessionData.uid, 
-        sid: sessionData.sid, 
-        Token: sessionData.token 
-      });
-    } else {
-      res.status(200).json({
-        message: 'success',
-        uid: sessionData.uid,
-        Token: sessionData.token
-      });
-    }
-  } catch (error) {
-    console.error('❌ Login route fatal crash:', error.message);
-    res.status(500).json({ 
-      message: 'error', 
-      error: 'An internal server error occurred during login handling.' 
-    });
-  }
+const shopId = userData.shopId || registrationResult.sid;
+const { name: actor, role } = req.actorInfo;
+const details = `${actor} created new ${userData.usertype} account for ${userData.name}`;
+
+await dbActions.saveAuditLog(shopId, actor, role, 'USER_MANAGEMENT', 'REGISTER_USER', details);
+broadcastAuditAlert(shopId, 'User Registered', details, actor, role);
+
+res.status(200).json({ message: 'Registration data recorded successfully', uid: registrationResult.uid, sid: registrationResult.sid });
+
+} catch (error) {
+console.error('Registration Route Error:', error.message);
+res.status(500).json({ success: false, error: error.message });
+}
 });
 
-app.post(`${apiPrefix}/register`, async (req, res) => {
-  const userData = req.body;
+// --- Dashboard & Analytics ---
+router.post('/owner', async (req, res) => {
   try {
-    const registrationResult = await dbActions.createNewUser(userData);
-    res.status(200).json({
-      message: 'Registration data recorded successfully',
-      uid: registrationResult.uid,
-      sid: registrationResult.sid
-    });
-  } catch (error) {
-    console.error('Registration Route Error:', error.message);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message 
-    });
-  } 
-});
+    const { shopId, user: uid } = req.body;
 
-app.post(`${apiPrefix}/owner`, async (req, res) => {
-  try {
-    const { shopId } = req.body;
-    if (!shopId) {
-      return res.status(400).json({ error: 'Shop ID (sid) is required.' });
+    if (!shopId || !uid) {
+      return res.status(400).json({ error: 'Shop ID (sid) and User ID (uid) are required.' });
     }
-    const dashboardData = await dbActions.getOwnerDashboard(shopId);
+
+    const dashboardData = await dbActions.getOwnerDashboard(shopId, uid);
+
     if (!dashboardData) {
       return res.status(404).json({ error: 'Shop records not found.' });
     }
+
     res.status(200).json(dashboardData);
+
   } catch (error) {
     console.error('❌ Owner dashboard routing error:', error.message);
     res.status(500).json({ error: 'Server error' });
   }
 });
 
-app.get(`${apiPrefix}/search`, async (req, res) => {
+
+router.get('/search', async (req, res) => {
   try {
-    const { query, shopId } = req.query;
-    if (!query) {
-      return res.status(200).json({ records: [] });
-    }
-    const filteredResults = await dbActions.searchShopUsers(shopId, query);
+    const { query, shopId, userUid } = req.query;
+    console.log("SEARCH ROUTE HIT -> query:", query, "shopId:", shopId, "userUid:", userUid);
+
+    if (!query) return res.status(200).json({ records: [] });
+
+    const filteredResults = await dbActions.searchShopUsers(shopId, query, userUid);
+
     res.status(200).json({ records: filteredResults });
   } catch (error) {
-    console.error('Error handling database search request:', error.message);
+    console.error('Error handling search request:', error.message);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 
-app.post(`${apiPrefix}/gather_cat_item`, async (req, res) => {
-  try {
-    const { shopId } = req.body;
-    if (!shopId) return res.status(400).json({ error: 'Missing Shop Identity' });
-    const inventoryData = await dbActions.gatherCatAndItems(shopId);
-    res.status(200).json(inventoryData);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Server error loading inventory data' });
-  }
-});
 
-app.post(`${apiPrefix}/addCategory`, resolveActorContext, async (req, res) => {
-  try {
-    const { shopId, name } = req.body;
-    if (!shopId || !name) return res.status(400).json({ error: 'Missing name parameters' });
+router.post('/sales/last-7', async (req, res) => {
+    try {
+        const { uid, shopId } = req.body;
+        if (!uid || !shopId) return res.status(400).json({ error: 'Missing essential ID' });
 
-    await dbActions.addCategoryName(shopId, name.trim());
-
-    const actor = req.actorInfo.name;
-    const role = req.actorInfo.role;
-    const details = `${actor} added category "${name.trim()}"`;
-    await dbActions.saveAuditLog(shopId, actor, role, 'INVENTORY', 'ADD_CATEGORY', details);
-    broadcastAuditAlert(shopId, 'Category Added', details, actor, role);
-
-    res.status(200).json({ message: 'saved successfully' });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Server error adding category' });
-  }
-});
-
-app.post(`${apiPrefix}/addItem`, resolveActorContext, async (req, res) => {
-  try {
-    const { shopId, name, category, price, stock } = req.body;
-    if (!shopId || !name || !category) return res.status(400).json({ error: 'Required fields missing' });
-
-    const generatedPid = await dbActions.addItem(shopId, name, category, price, stock);
-
-    const actor = req.actorInfo.name;
-    const role = req.actorInfo.role;
-    const details = `${actor} added product "${name}" under category "${category}" (Price: ${price}, Stock: ${stock})`;
-    await dbActions.saveAuditLog(shopId, actor, role, 'INVENTORY', 'ADD_PRODUCT', details);
-    broadcastAuditAlert(shopId, 'New Product Added', details, actor, role);
-
-    const updatedCatalog = await dbActions.getBillingProducts(shopId);
-    broadcastStockUpdate(shopId, updatedCatalog);
-
-    res.status(200).json({ message: 'saved successfully', id: generatedPid });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Server error saving product item' });
-  }
-});
-
-app.post(`${apiPrefix}/deleteItem`, resolveActorContext, async (req, res) => {
-  try {
-    const { id, shopId } = req.body;
-    if (!id || !shopId) return res.status(400).json({ error: 'Identification parameters missing' });
-
-    await dbActions.deleteItem(id, shopId);
-
-    const actor = req.actorInfo.name;
-    const role = req.actorInfo.role;
-    const details = `${actor} deleted product ID #${id}`;
-    await dbActions.saveAuditLog(shopId, actor, role, 'INVENTORY', 'DELETE_PRODUCT', details);
-    broadcastAuditAlert(shopId, 'Product Deleted', details, actor, role);
-
-    const updatedCatalog = await dbActions.getBillingProducts(shopId);
-    broadcastStockUpdate(shopId, updatedCatalog);
-
-    res.json({ success: true });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Server error removing product item' });
-  }
-});
-
-app.post(`${apiPrefix}/deleteCat`, resolveActorContext, async (req, res) => {
-  try {
-    const { id, shopId } = req.body; 
-    if (!id || !shopId) return res.status(400).json({ error: 'Identification details missing' });
-
-    await dbActions.deleteCategory(id, shopId);
-
-    const actor = req.actorInfo.name;
-    const role = req.actorInfo.role;
-    const details = `${actor} deleted category framework "${id}"`;
-    await dbActions.saveAuditLog(shopId, actor, role, 'INVENTORY', 'DELETE_CATEGORY', details);
-    broadcastAuditAlert(shopId, 'Category Deleted', details, actor, role);
-
-    res.json({ success: true });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Server error removing category framework' });
-  }
-});
-
-app.post(`${apiPrefix}/sales/last-7`, async (req, res) => {
-  try {
-    const { uid, shopId } = req.body;
-    if (!uid || !shopId) {
-      return res.status(400).json({ error: 'Missing essential ID' });
+        const chartData = await dbActions.getLast7DaysSales(shopId);
+        res.status(200).json(chartData);
+    } catch (error) {
+        console.error('❌ Error rendering sales data:', error.message);
+        res.status(500).json({ error: 'Internal Server Error' });
     }
-    const chartData = await dbActions.getLast7DaysSales(shopId);
-    res.status(200).json(chartData);
-  } catch (error) {
-    console.error('❌ Error rendering last 7 days sales data:', error.message);
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
 });
 
-app.post(`${apiPrefix}/review`, async (req, res) => {
-  try {
-    const { shopId } = req.body;
-    if (!shopId) {
-      return res.status(400).json({ error: 'Missing shopId' });
+// --- Inventory & Catalog Management ---
+router.post('/gather_cat_item', async (req, res) => {
+    try {
+        const { shopId } = req.body;
+        if (!shopId) return res.status(400).json({ error: 'Missing Shop Identity' });
+
+        const inventoryData = await dbActions.gatherCatAndItems(shopId);
+        res.status(200).json(inventoryData);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Server error loading inventory data' });
     }
-    const feedbackData = await dbActions.getShopFeedback(shopId);
-    res.status(200).json(feedbackData);
-  } catch (error) {
-    console.error('❌ Error gathering reviews:', error.message);
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
 });
 
-app.post(`${apiPrefix}/addreview`, async (req, res) => {
-  try {
-    const { user, shopId, type, message, category } = req.body;
-    if (!shopId || !type || !message) {
-      return res.status(400).json({ error: 'Missing required feedback fields' });
+router.post('/addCategory', resolveActorContext, async (req, res) => {
+    try {
+        const { shopId, name } = req.body;
+        if (!shopId || !name) return res.status(400).json({ error: 'Missing name parameters' });
+
+        await dbActions.addCategoryName(shopId, name.trim());
+        const { name: actor, role } = req.actorInfo;
+        const details = `${actor} added category "${name.trim()}"`;
+
+        await dbActions.saveAuditLog(shopId, actor, role, 'INVENTORY', 'ADD_CATEGORY', details);
+        broadcastAuditAlert(shopId, 'Category Added', details, actor, role);
+
+        res.status(200).json({ message: 'saved successfully' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Server error adding category' });
     }
-    await dbActions.addFeedback(shopId, user || 'Anonymous', type, message, category || 'General');
-    return res.status(200).json({ success: true, message: 'Feedback saved successfully' });
-  } catch (error) {
-    console.error('❌ Error adding review:', error.message);
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
 });
 
-app.get(`${apiPrefix}/order/:shopId`, async (req, res) => {
-  try {
-    const { shopId } = req.params;
-    if (!shopId) {
-      return res.status(400).json({ error: 'Missing shopId parameters' });
+router.post('/addItem', resolveActorContext, async (req, res) => {
+    try {
+        const { shopId, name, category, price, stock } = req.body;
+        if (!shopId || !name || !category) return res.status(400).json({ error: 'Required fields missing' });
+
+        const generatedPid = await dbActions.addItem(shopId, name, category, price, stock);
+        const { name: actor, role } = req.actorInfo;
+        const details = `${actor} added product "${name}" under category "${category}" (Price: ${price}, Stock: ${stock})`;
+
+        await dbActions.saveAuditLog(shopId, actor, role, 'INVENTORY', 'ADD_PRODUCT', details);
+        broadcastAuditAlert(shopId, 'New Product Added', details, actor, role);
+
+        const updatedCatalog = await dbActions.getBillingProducts(shopId);
+        broadcastStockUpdate(shopId, updatedCatalog);
+
+        res.status(200).json({ message: 'saved successfully', id: generatedPid });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Server error saving product item' });
     }
-    const menuData = await dbActions.getShopMenuForOrder(shopId);
-    res.status(200).json(menuData);
-  } catch (error) {
-    console.error('❌ Error rendering shop customer menu:', error.message);
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
 });
 
-app.post(`${apiPrefix}/user-me`, async (req, res) => {
-  try {
-    const { uid, shopId } = req.body;
-    if (!uid || !shopId) {
-      return res.status(400).json({ error: 'Missing uid or shopId parameters' });
+router.post('/deleteItem', resolveActorContext, async (req, res) => {
+    try {
+        const { id, shopId } = req.body;
+        if (!id || !shopId) return res.status(400).json({ error: 'Identification parameters missing' });
+
+        await dbActions.deleteItem(id, shopId);
+        const { name: actor, role } = req.actorInfo;
+        const details = `${actor} deleted product ID #${id}`;
+
+        await dbActions.saveAuditLog(shopId, actor, role, 'INVENTORY', 'DELETE_PRODUCT', details);
+        broadcastAuditAlert(shopId, 'Product Deleted', details, actor, role);
+
+        const updatedCatalog = await dbActions.getBillingProducts(shopId);
+        broadcastStockUpdate(shopId, updatedCatalog);
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Server error removing product item' });
     }
-    const domain = 'http://localhost:5173/';
-    const destinationPath = `/order/${shopId}`;
-    const encodedRedirect = encodeURIComponent(destinationPath);
-    const qrUrl = `${domain}auth?next=${encodedRedirect}`;
-    res.status(200).json({ url: qrUrl });
-  } catch (error) {
-    console.error('❌ Error generating advertising QR landing path:', error.message);
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
 });
 
-app.get(`${apiPrefix}/my-products`, async (req, res) => {
-  try {
-    const token = req.headers['authorization']?.split(' ')[1]; 
-    const shopId = req.headers['shop-id'];
+router.post('/deleteCat', resolveActorContext, async (req, res) => {
+    try {
+        const { id, shopId } = req.body; 
+        if (!id || !shopId) return res.status(400).json({ error: 'Identification details missing' });
 
-    if (!token) {
-      return res.status(401).json({ error: 'No token provided' });
+        await dbActions.deleteCategory(id, shopId);
+        const { name: actor, role } = req.actorInfo;
+        const details = `${actor} deleted category framework "${id}"`;
+
+        await dbActions.saveAuditLog(shopId, actor, role, 'INVENTORY', 'DELETE_CATEGORY', details);
+        broadcastAuditAlert(shopId, 'Category Deleted', details, actor, role);
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Server error removing category framework' });
     }
-    if (!shopId) {
-      return res.status(400).json({ error: 'Missing shop-id header' });
+});
+
+router.get('/my-products', async (req, res) => {
+    try {
+        const token = req.headers['authorization']?.split(' ')[1]; 
+        const shopId = req.headers['shop-id'];
+
+        if (!token) return res.status(401).json({ error: 'No token provided' });
+        if (!shopId) return res.status(400).json({ error: 'Missing shop-id header' });
+
+        const billingCatalog = await dbActions.getBillingProducts(shopId);
+        res.status(200).json(billingCatalog);
+    } catch (error) {
+        console.error('❌ Error rendering product catalog:', error.message);
+        res.status(500).json({ error: 'Internal Server Error' });
     }
-
-    const billingCatalog = await dbActions.getBillingProducts(shopId);
-    res.status(200).json(billingCatalog);
-  } catch (error) {
-    console.error('❌ Error rendering live billing product catalog:', error.message);
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
 });
 
-app.post(`${apiPrefix}/bills`, resolveActorContext, async (req, res) => {
-  try {
-    const { shopId, items, status, clientUid, sc, rc } = req.body;
-    if (!shopId || !items) return res.status(400).json({ error: 'Missing bill data' });
+// --- Billing, Counter Sales & QR Orders ---
+router.post('/bills', resolveActorContext, async (req, res) => {
+    try {
+        const { shopId, items, status, clientUid, sc, rc } = req.body;
+        if (!shopId || !items) return res.status(400).json({ error: 'Missing bill data' });
 
-    const resolvedClientUid = clientUid || getClientUidFromRequest(req);
-    const fakeBillnum = `INV-${Math.floor(100000 + Math.random() * 900000)}`;
-    await dbActions.saveBillItems(shopId, fakeBillnum, items, status || 'paid', resolvedClientUid, null, sc, rc);
+        const resolvedClientUid = clientUid || getClientUidFromRequest(req);
+        const fakeBillnum = await dbActions.generateUniqueBillNum(shopId);
 
-    const actor = req.actorInfo.name;
-    const role = req.actorInfo.role;
-    const details = `${actor} created counter bill #${fakeBillnum}`;
-    await dbActions.saveAuditLog(shopId, actor, role, 'BILLING', 'CREATE_BILL', details);
-    broadcastAuditAlert(shopId, 'New Bill Created', details, actor, role);
+        await dbActions.saveBillItems(shopId, fakeBillnum, items, status || 'paid', resolvedClientUid, null, sc, rc);
 
-    notifyShopTablet(shopId, fakeBillnum);
-    const updatedCatalog = await dbActions.getBillingProducts(shopId);
-    broadcastStockUpdate(shopId, updatedCatalog);
+        const { name: actor, role } = req.actorInfo;
+        const details = `${actor} created counter bill #${fakeBillnum}`;
 
-    res.status(201).json({ billnum: fakeBillnum, id: fakeBillnum });
-  } catch (error) {
-    console.error('❌ Error saving bill:', error.message);
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
-});
+        await dbActions.saveAuditLog(shopId, actor, role, 'BILLING', 'CREATE_BILL', details);
+        broadcastAuditAlert(shopId, 'New Bill Created', details, actor, role);
 
-app.get(`${apiPrefix}/orders`, async (req, res) => {
-  try {
-    const token = req.headers['authorization']?.split(' ')[1];
-    const shopId = req.headers['shop-id'];
-    const { status } = req.query;
+        notifyShopTablet(shopId, fakeBillnum);
 
-    if (!token) return res.status(401).json({ error: 'No token provided' });
-    if (!shopId) return res.status(400).json({ error: 'Missing shop-id header' });
+        const updatedCatalog = await dbActions.getBillingProducts(shopId);
+        broadcastStockUpdate(shopId, updatedCatalog);
 
-    if (status) {
-      const filteredOrders = await dbActions.getOrdersWithNestedItems(shopId, status);
-      return res.status(200).json(filteredOrders);
+        res.status(201).json({ billnum: fakeBillnum, id: fakeBillnum });
+    } catch (error) {
+        console.error('❌ Error saving bill:', error.message);
+        res.status(500).json({ error: 'Internal Server Error' });
     }
-
-    const flatHistoryList = await dbActions.getPastOrdersHistory(shopId);
-    res.status(200).json(flatHistoryList);
-  } catch (error) {
-    console.error('❌ Error fetching orders list data:', error.message);
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
 });
 
-app.patch(`${apiPrefix}/orders/:id`, resolveActorContext, async (req, res) => {
-  try {
-    const id = req.params.id; 
-    const shopId = req.headers['shop-id'];
-    const { status, items, clientUid, sc, rc } = req.body;
+router.get('/orders', async (req, res) => {
+    try {
+        const token = req.headers['authorization']?.split(' ')[1];
+        const shopId = req.headers['shop-id'];
+        const { status } = req.query;
 
-    if (!shopId) return res.status(400).json({ error: 'Missing shop-id context' });
+        if (!token) return res.status(401).json({ error: 'No token provided' });
+        if (!shopId) return res.status(400).json({ error: 'Missing shop-id header' });
 
-    const resolvedClientUid = clientUid || getClientUidFromRequest(req);
-    const effectiveStatus = (status === 'cancelled') ? 'cancelled' : status;
-    await dbActions.updateOrderStatus(id, shopId, effectiveStatus, items || [], resolvedClientUid, sc || 0, rc || 0);
+        if (status) {
+            const filteredOrders = await dbActions.getOrdersWithNestedItems(shopId, status);
+            return res.status(200).json(filteredOrders);
+        }
 
-    const actor = req.actorInfo.name;
-    const role = req.actorInfo.role;
-    const isAccepted = effectiveStatus === 'paid' || effectiveStatus === 'accepted';
-    const actionTitle = isAccepted ? 'QR Order Accepted' : 'QR Order Rejected';
-    const details = isAccepted 
-      ? `Order #${id} has been accepted by the store.` 
-      : `Order #${id} has been rejected by the store.`;
-    await dbActions.saveAuditLog(shopId, actor, role, 'QR_ORDER', actionTitle, details);
-    broadcastAuditAlert(shopId, actionTitle, details, actor, role);
-
-    const updatedCatalog = await dbActions.getBillingProducts(shopId);
-    broadcastStockUpdate(shopId, updatedCatalog);
-
-    const billnum = isAccepted ? `BILL-${Date.now()}` : id;
-    res.status(200).json({ ok: true, billnum });
-  } catch (error) {
-    console.error('❌ Error updating order changes:', error.message);
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
-});
-
-app.post(`${apiPrefix}/deleteBill`, resolveActorContext, async (req, res) => {
-  try {
-    const shopId = req.headers['shop-id'];
-    const { billId } = req.body;
-
-    if (!shopId || !billId) return res.status(400).json({ error: 'Missing shop-id or billId parameters' });
-
-    await dbActions.deleteBillRecord(shopId, billId);
-
-    const actor = req.actorInfo.name;
-    const role = req.actorInfo.role;
-    const details = `${actor} deleted bill record #${billId}`;
-    await dbActions.saveAuditLog(shopId, actor, role, 'BILLING', 'DELETE_BILL', details);
-    broadcastAuditAlert(shopId, 'Bill Deleted', details, actor, role);
-
-    res.status(200).json({ success: true });
-  } catch (error) {
-    console.error('❌ Error deleting bill record:', error.message);
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
-});
-
-app.get(`${apiPrefix}/pendingorders`, async (req, res) => {
-  try {
-    const token = req.headers['authorization']?.split(' ')[1];
-    const shopId = req.headers['shop-id'];
-
-    if (!token || !token.startsWith('Bearer ')) {
-      if (!req.headers.authorization) return res.status(401).json({ error: 'Unauthorized' });
+        const flatHistoryList = await dbActions.getPastOrdersHistory(shopId);
+        res.status(200).json(flatHistoryList);
+    } catch (error) {
+        console.error('❌ Error fetching orders:', error.message);
+        res.status(500).json({ error: 'Internal Server Error' });
     }
-    if (!shopId) {
-      return res.status(400).json({ error: 'Missing shop-id header' });
-    }
-
-    const pendingList = await dbActions.getOrdersWithNestedItems(shopId, 'pending');
-    res.status(200).json(pendingList);
-  } catch (error) {
-    console.error('❌ Error loading active kitchen pipeline monitors:', error.message);
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
 });
 
-app.get(`${apiPrefix}/audit-logs`, async (req, res) => {
-  try {
-    const token = req.headers['authorization']?.split(' ')[1];
-    const shopId = req.headers['shop-id'];
+router.patch('/orders/:id', resolveActorContext, async (req, res) => {
+    try {
+        const id = req.params.id; 
+        const shopId = req.headers['shop-id'];
+        const clientUid = req.headers['client-uid'];
+        const { billNum, status, items, sc, rc } = req.body;
+        if (!shopId) return res.status(400).json({ error: 'Missing shop-id context' });
 
-    if (!token) return res.status(401).json({ error: 'No token provided' });
-    if (!shopId) return res.status(400).json({ error: 'Missing shop-id header' });
+        const resolvedClientUid = clientUid || getClientUidFromRequest(req);
+        const effectiveStatus = (status === 'cancelled') ? 'cancelled' : status;
 
-    const logs = await dbActions.getShopAuditLogs(shopId);
-    res.status(200).json(logs);
-  } catch (error) {
-    console.error('❌ Error fetching audit logs history:', error.message);
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
-});
-
-app.get(`${apiPrefix}/account/dues`, async (req, res) => {
-  try {
-    const shopId = req.headers['shop-id'];
-    const duesProfile = await dbActions.getAccountDues(shopId);
-    res.status(200).json(duesProfile);
-  } catch (error) {
-    console.error('❌ Error rendering subscription balances layout window:', error.message);
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
-});
-
-app.post(`${apiPrefix}/account/pay`, async (req, res) => {
-  try {
-    const shopId = req.headers['shop-id'];
-    const duesProfile = await dbActions.getAccountDues(shopId);
-
-    if (!duesProfile || duesProfile.amount <= 0) {
-      return res.status(400).json({ error: 'No outstanding balance to pay' });
-    }
-
-    const merchantId = '1228195'; 
-    const merchantSecret = 'MTQ3ODM3MjAyMjkxNTE0NjExMTA3MTAwODQ5NDIwMTc1NzE1MjU='; 
-    const orderId = `SUB_${shopId}_${Date.now()}`;
-    const amount = Number(duesProfile.amount).toFixed(2);
-    const currency = duesProfile.currency || 'LKR';
-
-    const hashedSecret = generateMd5Hash(merchantSecret);
-    const rawHashString = merchantId + orderId + amount + currency + hashedSecret;
-    const hash = generateMd5Hash(rawHashString);
-
-    res.status(200).json({
-      success: true,
-      payhereUrl: 'https://sandbox.payhere.lk/pay',
-      paymentData: {
-        sandbox: true,
-        merchant_id: merchantId,
-        return_url: `http://localhost:5173/posowner`,
-        cancel_url: `http://localhost:5173/posowner`,
-        notify_url: `http://localhost:${PORT}${apiPrefix}/account/notify`,
-        order_id: orderId,
-        items: 'Kinetic Code POS Subscription',
-        amount: amount,
-        currency: currency,
-        hash: hash,
-        first_name: duesProfile.owner_name || 'Shop',
-        last_name: 'Owner',
-        email: duesProfile.email || 'owner@kineticcode.lk',
-        phone: duesProfile.phone || '0771234567',
-        address: 'Battaramulla',
-        city: 'Colombo',
-        country: 'Sri Lanka',
-        recurrence: '1 Month',
-        duration: 'Forever'
-      }
-    });
-  } catch (error) {
-    console.error('❌ Error preparing PayHere redirect:', error.message);
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
-});
-
-app.post(`${apiPrefix}/account/notify`, async (req, res) => {
-  try {
-    const paymentData = req.body;
-    const { order_id, status_code, customer_token, payhere_amount } = paymentData;
-
-    if (status_code === '2') {
-      const parts = order_id.split('_');
-      const shopId = parts[1]; 
-
-      if (shopId) {
-        if (customer_token) {
-          await dbActions.savePaymentToken(shopId, customer_token);
+        if (effectiveStatus === 'cancelled') {
+            await dbActions.updateOrderStatusSimple(billNum || id, shopId, effectiveStatus);
         } else {
-          await dbActions.processAccountPayment(shopId);
+            await dbActions.updateOrderStatus(clientUid, billNum || id, shopId, effectiveStatus, items || [], resolvedClientUid, sc || 0, rc || 0);
         }
 
-        const paidAmount = payhere_amount || 0.00;
-        await dbActions.saveSubscriptionPayment(shopId, paidAmount, order_id);
-        console.log(`✅ Successfully processed and recorded subscription payment for Shop ID ${shopId}`);
-      }
+        const { name: actor, role } = req.actorInfo;
+        const isAccepted = effectiveStatus === 'paid' || effectiveStatus === 'accepted';
+        const actionTitle = isAccepted ? 'QR Order Accepted' : 'QR Order Rejected';
+        const details = isAccepted ? `Order #${id} accepted.` : `Order #${id} rejected.`;
+
+        await dbActions.saveAuditLog(shopId, actor, role, 'QR_ORDER', actionTitle, details);
+        broadcastAuditAlert(shopId, actionTitle, details, actor, role);
+
+        const updatedCatalog = await dbActions.getBillingProducts(shopId);
+        broadcastStockUpdate(shopId, updatedCatalog);
+
+        res.status(200).json({ ok: true, billnum: isAccepted ? `BILL-${Date.now()}` : id });
+    } catch (error) {
+        console.error('❌ Error updating order:', error.message);
+        res.status(500).json({ error: 'Internal Server Error' });
     }
-    res.status(200).send('Notification received');
-  } catch (error) {
-    console.error('❌ Error processing PayHere notification webhook:', error.message);
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
 });
 
+router.post('/deleteBill', resolveActorContext, async (req, res) => {
+    try {
+        const shopId = req.headers['shop-id'];
+        const { billId } = req.body;
+
+        if (!shopId || !billId) return res.status(400).json({ error: 'Missing parameters' });
+
+        await dbActions.deleteBillRecord(shopId, billId);
+        const { name: actor, role } = req.actorInfo;
+        const details = `${actor} deleted bill record #${billId}`;
+
+        await dbActions.saveAuditLog(shopId, actor, role, 'BILLING', 'DELETE_BILL', details);
+        broadcastAuditAlert(shopId, 'Bill Deleted', details, actor, role);
+
+        res.status(200).json({ success: true });
+    } catch (error) {
+        console.error('❌ Error deleting bill:', error.message);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.get('/pendingorders', async (req, res) => {
+    try {
+        const shopId = req.headers['shop-id'];
+        if (!shopId) return res.status(400).json({ error: 'Missing shop-id header' });
+
+        const pendingList = await dbActions.getOrdersWithNestedItems(shopId, 'pending');
+        res.status(200).json(pendingList);
+    } catch (error) {
+        console.error('❌ Error loading pending orders:', error.message);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// --- Customer Menu & QR Generation ---
+router.get('/order/:shopId', async (req, res) => {
+    try {
+        const { shopId } = req.params;
+        if (!shopId) return res.status(400).json({ error: 'Missing shopId' });
+
+        const menuData = await dbActions.getShopMenuForOrder(shopId);
+        res.status(200).json(menuData);
+    } catch (error) {
+        console.error('❌ Error rendering customer menu:', error.message);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.post('/user-me', async (req, res) => {
+    try {
+        const { uid, shopId } = req.body;
+        if (!uid || !shopId) return res.status(400).json({ error: 'Missing parameters' });
+
+        const qrUrl = `http://localhost:5173/auth?next=${encodeURIComponent(`/order/${shopId}`)}`;
+        res.status(200).json({ url: qrUrl });
+    } catch (error) {
+        console.error('❌ Error generating QR landing path:', error.message);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// --- Reviews & Feedback ---
+router.post('/review', async (req, res) => {
+    try {
+        const { shopId } = req.body;
+        if (!shopId) return res.status(400).json({ error: 'Missing shopId' });
+
+        const feedbackData = await dbActions.getShopFeedback(shopId);
+        res.status(200).json(feedbackData);
+    } catch (error) {
+        console.error('❌ Error gathering reviews:', error.message);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.post('/addreview', async (req, res) => {
+    try {
+        const { user, shopId, type, message, category } = req.body;
+        if (!shopId || !type || !message) return res.status(400).json({ error: 'Missing feedback fields' });
+
+        await dbActions.addFeedback(shopId, user || 'Anonymous', type, message, category || 'General');
+        res.status(200).json({ success: true, message: 'Feedback saved successfully' });
+    } catch (error) {
+        console.error('❌ Error adding review:', error.message);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// --- Audit Logs & Notifications ---
+router.get('/audit-logs', resolveActorContext, async (req, res) => {
+    try {
+        const shopId = req.headers['shop-id'] || req.query.shopId;
+        const clientUid = req.headers['client-uid'] || req.headers['uid'] || req.query.uid;
+
+        if (!shopId) return res.status(400).json({ error: 'Missing shop-id header' });
+
+        if (clientUid && dbActions.getClientAuditLogs) {
+            const clientLogs = await dbActions.getClientAuditLogs(shopId, clientUid);
+            return res.status(200).json(clientLogs);
+        }
+
+        const logs = await dbActions.getShopAuditLogs(shopId);
+        res.status(200).json(logs);
+    } catch (error) {
+        console.error('❌ Error fetching audit logs:', error.message);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.get('/notifications/unread-count', resolveActorContext, async (req, res) => {
+    try {
+        const shopId = req.headers['shop-id'] || req.query.shopId;
+        if (!shopId) return res.status(400).json({ error: 'Missing shop ID' });
+
+        const count = await dbActions.getUnreadAuditCount(shopId);
+        res.status(200).json({ count });
+    } catch (error) {
+        console.error('❌ Error fetching unread count:', error.message);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+router.post('/notifications/mark-read', resolveActorContext, async (req, res) => {
+    try {
+        const shopId = req.headers['shop-id'] || req.body.shopId;
+        if (!shopId) return res.status(400).json({ error: 'Missing shop ID' });
+
+        await dbActions.markAuditLogsAsRead(shopId);
+        res.status(200).json({ success: true });
+    } catch (error) {
+        console.error('❌ Error marking notifications read:', error.message);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+router.get('/notifications/settings', resolveActorContext, async (req, res) => {
+    try {
+        const shopId = req.headers['shop-id'] || req.query.shopId;
+        const clientUid = req.headers['client-uid'] || req.headers['uid'] || req.query.uid;
+
+        if (!shopId) return res.status(400).json({ error: 'Missing shop-id header' });
+
+        if (clientUid && dbActions.getNotificationSettings) {
+            const settings = await dbActions.getNotificationSettings(shopId, clientUid);
+            return res.status(200).json({ notifications_permitted: settings?.permitted ?? true });
+        }
+
+        const permitted = await dbActions.getNotificationPreference(shopId);
+        res.status(200).json({ notifications_permitted: permitted });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.patch('/notifications/settings', resolveActorContext, async (req, res) => {
+    try {
+        const shopId = req.headers['shop-id'] || req.body.shopId;
+        const clientUid = req.headers['client-uid'] || req.headers['uid'] || req.body?.clientUid || req.body?.uid;
+        const { permitted } = req.body;
+
+        if (!shopId) return res.status(400).json({ error: 'Missing shop-id header' });
+
+        if (clientUid && dbActions.updateNotificationSettings) {
+            await dbActions.updateNotificationSettings(shopId, clientUid, permitted);
+            return res.status(200).json({ success: true, notifications_permitted: permitted });
+        }
+
+        await dbActions.updateNotificationPreference(shopId, permitted);
+        res.status(200).json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- Subscription, Billing & PayHere Gateway Integration ---
+router.get('/account/dues', async (req, res) => {
+    try {
+        const shopId = req.headers['shop-id'];
+        const duesProfile = await dbActions.getAccountDues(shopId);
+        res.status(200).json(duesProfile);
+    } catch (error) {
+        console.error('❌ Error rendering subscription balances:', error.message);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.post('/account/pay', async (req, res) => {
+    try {
+        const shopId = req.headers['shop-id'];
+        const duesProfile = await dbActions.getAccountDues(shopId);
+
+        if (!duesProfile || duesProfile.amount <= 0) {
+            return res.status(400).json({ error: 'No outstanding balance to pay' });
+        }
+
+        const merchantId = '1228195'; 
+        const merchantSecret = 'MTQ3ODM3MjAyMjkxNTE0NjExMTA3MTAwODQ5NDIwMTc1NzE1MjU='; 
+        const orderId = `SUB_${shopId}_${Date.now()}`;
+        const amount = Number(duesProfile.amount).toFixed(2);
+        const currency = duesProfile.currency || 'LKR';
+
+        const hashedSecret = generateMd5Hash(merchantSecret);
+        const rawHashString = merchantId + orderId + amount + currency + hashedSecret;
+        const hash = generateMd5Hash(rawHashString);
+
+        res.status(200).json({
+            success: true,
+            payhereUrl: 'https://sandbox.payhere.lk/pay',
+            paymentData: {
+                sandbox: true,
+                merchant_id: merchantId,
+                return_url: `http://localhost:5173/posowner`,
+                cancel_url: `http://localhost:5173/posowner`,
+                notify_url: `http://localhost:${PORT}${API_PREFIX}/account/notify`,
+                order_id: orderId,
+                items: 'Kinetic Code POS Subscription',
+                amount,
+                currency,
+                hash,
+                first_name: duesProfile.owner_name || 'Shop',
+                last_name: 'Owner',
+                email: duesProfile.email || 'owner@kineticcode.lk',
+                phone: duesProfile.phone || '0771234567',
+                address: 'Battaramulla',
+                city: 'Colombo',
+                country: 'Sri Lanka',
+                recurrence: '1 Month',
+                duration: 'Forever'
+            }
+        });
+    } catch (error) {
+        console.error('❌ Error preparing PayHere redirect:', error.message);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.post('/account/notify', async (req, res) => {
+try {
+const paymentData = req.body;
+const { order_id, status_code, customer_token, payhere_amount } = paymentData;
+
+// Status code '2' means success in PayHere gateway responses
+if (status_code === '2') {
+const parts = order_id.split('_');
+const shopId = parts[1]; 
+
+if (shopId) {
+// 1. Process payment first to clear/update active balance dues
+await dbActions.processAccountPayment(shopId, payhere_amount || 0.00);
+
+// 2. Safely store recurring customer token if issued for automatic monthly billing sweeps
+if (customer_token) {
+await dbActions.savePaymentToken(shopId, customer_token);
+}
+
+// 3. Record transaction payment history logs
+await dbActions.saveSubscriptionPayment(shopId, payhere_amount || 0.00, order_id);
+console.log(`✅ Successfully processed subscription payment for Shop ID ${shopId}`);
+
+// 4. Fetch shop and account details to send the notification email
+const accountDetails = await dbActions.getAccountSummaryForEmail(shopId);
+if (accountDetails) {
+const { rawShopName, ownerEmail, totalSales, dueAmount, chargeAmount } = accountDetails;
+const recipientEmail = ownerEmail || 'unknownlion001@gmail.com';
+const sanitizedShopName = rawShopName.replace(/[^a-zA-Z0-9-_]/g, "_");
+const currentDate = new Date().toISOString().split('T')[0];
+
+const csvHeaderLines = [
+`"Shop Name: ${rawShopName}"`,
+`"Payment Date: ${currentDate}"`,
+`"Total Sales: ${totalSales}"`,
+`"Due Amount: ${dueAmount}"`,
+`"Amount Charged: ${chargeAmount}"`,
+``,
+`"Order ID","Status","Amount Paid"`
+].join("\n");
+
+const csvRow = `"${order_id}","Success","${payhere_amount || 0.00}"`;
+const fileName = `${sanitizedShopName}_payment_summary.csv`;
+const filePath = path.join(__dirname, fileName);
+
+fs.writeFileSync(filePath, csvHeaderLines + "\n" + csvRow);
+
+const directTransporter = nodemailer.createTransport({
+service: 'gmail',
+auth: {
+user: 'unknownlion001@gmail.com',
+pass: 'csrn yccb kboy szao'
+}
+});
+
+const mailOptions = {
+from: 'unknownlion001@gmail.com',
+to: recipientEmail,
+subject: `Payment Notification & Summary - ${rawShopName}`,
+text: `Payment successfully processed for ${rawShopName}.\nTotal Sales: ${totalSales}\nDue Amount: ${dueAmount}\nAmount Charged: ${chargeAmount}`,
+attachments: [{ filename: fileName, path: filePath }]
+};
+
+await directTransporter.sendMail(mailOptions);
+
+if (fs.existsSync(filePath)) {
+fs.unlinkSync(filePath);
+}
+}
+}
+}
+
+res.status(200).send('Notification received');
+} catch (error) {
+console.error('❌ Error processing PayHere webhook & email notification:', error.message);
+res.status(500).json({ error: 'Internal Server Error' });
+}
+});
+
+
+// --- System Administration & User Status Control ---
+router.post('/posowners', async (req, res) => {
+    try {
+        if (!req.body.user) return res.status(401).json({ error: 'Unauthorized' });
+
+        const systemData = await dbActions.getSystemAdminDashboard();
+        res.status(200).json(systemData);
+    } catch (error) {
+        console.error('❌ Error fetching system pos owners:', error.message);
+        res.status(500).json({ error: 'Server error while loading data' });
+    }
+});
+
+router.post('/terminate', resolveActorContext, async (req, res) => {
+    try {
+        const { id } = req.body;
+        const shopId = req.headers['shop-id'] || req.body?.shopId;
+        if (!id) return res.status(400).json({ error: 'Missing account ID' });
+
+        await dbActions.terminateUserByUid(id);
+
+        if (dbActions.saveAuditLog) {
+            await dbActions.saveAuditLog(
+                shopId || 'GLOBAL',
+                req.actorInfo?.name || 'Shop Owner',
+                req.actorInfo?.role || 'owner',
+                'USER_MANAGEMENT',
+                'TERMINATE_USER',
+                `Terminated user account ID: ${id}`
+            );
+        }
+
+        res.status(200).json({ value: { message: 'User account terminated successfully' } });
+    } catch (error) {
+        console.error('❌ Error terminating account:', error.message);
+        res.status(500).json({ error: 'Server error during termination' });
+    }
+});
+
+router.patch('/users/:id/status', resolveActorContext, async (req, res) => {
+    try {
+        const userId = req.params.id;
+        const shopId = req.headers['shop-id'] || req.body?.shopId;
+        const { status } = req.body;
+
+        if (!shopId || !status) return res.status(400).json({ error: 'Missing parameters' });
+
+        const { name: actor, role } = req.actorInfo;
+
+        if (status === 'TERMINATED') {
+            await dbActions.terminateUser(shopId, userId);
+            const details = `${actor} terminated user ID #${userId}`;
+            await dbActions.saveAuditLog(shopId, actor, role, 'USER_MANAGEMENT', 'TERMINATE_USER', details);
+            broadcastAuditAlert(shopId, 'User Terminated', details, actor, role);
+            return res.status(200).json({ success: true, message: 'User terminated successfully' });
+        } else {
+            await dbActions.updateUserStatus(shopId, userId, status);
+            const details = `${actor} marked user ID #${userId} as ${status}`;
+            await dbActions.saveAuditLog(shopId, actor, role, 'USER_MANAGEMENT', 'HOLD_USER', details);
+            broadcastAuditAlert(shopId, `User Status Updated: ${status}`, details, actor, role);
+            return res.status(200).json({ success: true, message: `Status updated to ${status}` });
+        }
+    } catch (error) {
+        console.error('❌ Error handling user status:', error.message);
+        return res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// --- Asynchronous Sales Report Generation & Email Dispatch ---
+router.post('/owner/report', async (req, res) => {
+    const { user, shopId, period } = req.body;
+
+    if (!user || !shopId || !period) {
+        return res.status(400).json({ message: "Missing required parameters (user, shopId, or period)." });
+    }
+
+    try {
+        const recipientEmail = 'unknownlion001@gmail.com';
+        const reportData = await dbActions.getSalesByPeriod(shopId, user, period);
+        const rawShopName = reportData.shopName;
+        const bills = reportData.bills;
+
+        if (!bills || bills.length === 0) {
+            return res.status(404).json({ message: "No sales records found for the selected period." });
+        }
+
+        let grossTotal = 0;
+        let totalDeductions = 0;
+        let deductionCount = 0;
+
+        const formattedRows = bills.map(b => {
+            const priceNum = parseFloat(b.price) || 0;
+            if (priceNum < 0) {
+                totalDeductions += Math.abs(priceNum);
+                deductionCount++;
+            }
+            grossTotal += priceNum;
+            return `"${b.billnum}","${b.mobile || 'N/A'}","${b.price}","${b.time}"`;
+        });
+
+        const netTotal = grossTotal;
+        const sanitizedShopName = rawShopName.replace(/[^a-zA-Z0-9-_]/g, "_");
+        const currentDate = new Date().toISOString().split('T')[0];
+
+        const csvHeaderLines = [
+            `"Shop Name: ${rawShopName}"`,
+            `"Report Period: ${reportData.startDate} to ${reportData.endDate}"`,
+            `"Generated Date: ${currentDate}"`,
+            `"Total Sales (Gross): ${grossTotal.toFixed(2)}"`,
+            `"Total Deductions/Returns: -${totalDeductions.toFixed(2)} (${deductionCount} items)"`,
+            `"Net Total Sales: ${netTotal.toFixed(2)}"`,
+            ``,
+            `"Bill Number","Mobile","Price","Time"`
+        ].join("\n");
+
+        const csvRowsContent = formattedRows.join("\n");
+        const fileName = `${sanitizedShopName}_${period}_report.csv`;
+        const filePath = path.join(__dirname, fileName);
+
+        fs.writeFileSync(filePath, csvHeaderLines + "\n" + csvRowsContent);
+
+        const directTransporter = nodemailer.createTransport({
+            service: 'gmail',
+            auth: {
+                user: 'unknownlion001@gmail.com',
+                pass: 'csrn yccb kboy szao'
+            }
+        });
+
+        const mailOptions = {
+            from: 'unknownlion001@gmail.com',
+            to: recipientEmail,
+            subject: `Sales Report (${period.toUpperCase()}) - ${rawShopName}`,
+            text: `Please find attached your ${period} sales report CSV file for ${rawShopName}. Net Total: ${netTotal.toFixed(2)}`,
+            attachments: [{ filename: fileName, path: filePath }]
+        };
+
+        await directTransporter.sendMail(mailOptions);
+
+        if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+        }
+
+        return res.status(200).json({ message: "Sales report CSV successfully generated and emailed!" });
+    } catch (error) {
+        console.error("Error generating sales report:", error);
+        return res.status(500).json({ message: "Internal server error while processing the report." });
+    }
+});
+
+// Mount modular router onto main application instance
+app.use(API_PREFIX, router);
+
+// ============================================================================
+// 6. AUTOMATED BACKGROUND JOBS (CRON)
+// ============================================================================
+
+/**
+ * Monthly Automated Commission Sweep & Autopay Processor
+ * Executes on the 1st of every month at midnight (00:00).
+ */
 cron.schedule('0 0 1 * *', async () => {
-  console.log('🔄 Running automated monthly sales commission sweep...');
-  try {
-    const shops = await dbActions.getAllActiveShops();
-    for (const shop of shops) {
-      try {
-        const totalMonthlySales = await dbActions.getMonthlySalesTotal(shop.sid);
-        const calculatedFee = calculateMonthlySubscriptionFee(totalMonthlySales);
+    console.log('🔄 Running automated monthly sales commission sweep...');
+    try {
+        const shops = await dbActions.getAllActiveShops();
+        for (const shop of shops) {
+            try {
+                const totalMonthlySales = await dbActions.getMonthlySalesTotal(shop.sid);
+                const calculatedFee = calculateMonthlySubscriptionFee(totalMonthlySales);
 
-        await dbActions.applyMonthlyLiability(shop.sid, calculatedFee);
-        console.log(`✅ Applied monthly fee of ${calculatedFee} for Shop ID ${shop.sid}`);
+                await dbActions.applyMonthlyLiability(shop.sid, calculatedFee);
+                console.log(`✅ Applied monthly fee of ${calculatedFee} for Shop ID ${shop.sid}`);
 
-        if (shop.customer_token && calculatedFee > 0) {
-          console.log(`Charging Shop ID ${shop.sid} via stored token for monthly commission...`);
-          await dbActions.processAccountPayment(shop.sid, calculatedFee);
-          console.log(`✅ Monthly autopay successful for Shop ID ${shop.sid}`);
+                if (shop.customer_token && calculatedFee > 0) {
+                    console.log(`Charging Shop ID ${shop.sid} via stored token for monthly commission...`);
+                    await dbActions.processAccountPayment(shop.sid, calculatedFee);
+                    console.log(`✅ Monthly autopay successful for Shop ID ${shop.sid}`);
+                }
+            } catch (shopError) {
+                console.error(`❌ Failed processing monthly commission for Shop ID ${shop.sid}:`, shopError.message);
+                await dbActions.handleFailedAutopay(shop.sid, 0.00);
+            }
         }
-      } catch (shopError) {
-        console.error(`❌ Failed processing monthly commission for Shop ID ${shop.sid}:`, shopError.message);
-        await dbActions.handleFailedAutopay(shop.sid, 0.00);
-      }
+    } catch (error) {
+        console.error('❌ Error executing monthly billing job runner:', error.message);
     }
-  } catch (error) {
-    console.error('❌ Error executing monthly billing job runner:', error.message);
-  }
 });
 
-app.get(`${apiPrefix}/notifications/settings`, async (req, res) => {
-  try {
-    const shopId = req.headers['shop-id'];
-    if (!shopId) return res.status(400).json({ error: 'Missing shop-id header' });
-    const permitted = await dbActions.getNotificationPreference(shopId);
-    res.status(200).json({ notifications_permitted: permitted });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.patch(`${apiPrefix}/notifications/settings`, async (req, res) => {
-  try {
-    const shopId = req.headers['shop-id'];
-    const { permitted } = req.body;
-    if (!shopId) return res.status(400).json({ error: 'Missing shop-id header' });
-
-    await dbActions.updateNotificationPreference(shopId, permitted);
-    res.status(200).json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post(`${apiPrefix}/posowners`, async (req, res) => {
-  try {
-    const { user } = req.body;
-    if (!user) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-    const systemData = await dbActions.getSystemAdminDashboard();
-    res.status(200).json(systemData);
-  } catch (error) {
-    console.error('❌ Error fetching system pos owners:', error.message);
-    res.status(500).json({ error: 'Server error while loading data' });
-  }
-});
-app.post(`${apiPrefix}/terminate`, async (req, res) => {
-  try {
-    const { id } = req.body;
-    if (!id) {
-      return res.status(400).json({ error: 'Missing account ID' });
-    }
-    await dbActions.terminateUserByUid(id);
-    res.status(200).json({
-      value: { message: 'User account terminated successfully' }
-    });
-  } catch (error) {
-    console.error('❌ Error terminating account:', error.message);
-    res.status(500).json({ error: 'Server error during termination' });
-  }
-});
-
-app.patch(`${apiPrefix}/users/:id/status`, resolveActorContext, async (req, res) => {
-  try {
-    const userId = req.params.id;
-    const shopId = req.headers['shop-id'] || req.body?.shopId;
-    const { status } = req.body;
-
-    if (!shopId || !status) {
-      return res.status(400).json({ error: 'Missing shopId or status parameters' });
-    }
-
-    const actor = req.actorInfo.name;
-    const role = req.actorInfo.role;
-
-    if (status === 'TERMINATED') {
-      await dbActions.terminateUser(shopId, userId);
-      const details = `${actor} deleted/terminated user ID #${userId}`;
-      await dbActions.saveAuditLog(shopId, actor, role, 'USER_MANAGEMENT', 'TERMINATE_USER', details);
-      broadcastAuditAlert(shopId, 'User Terminated', details, actor, role);
-
-      return res.status(200).json({ success: true, message: 'User terminated successfully' });
-    } else {
-      await dbActions.updateUserStatus(shopId, userId, status);
-      const details = `${actor} marked user ID #${userId} as ${status}`;
-      await dbActions.saveAuditLog(shopId, actor, role, 'USER_MANAGEMENT', 'HOLD_USER', details);
-      broadcastAuditAlert(shopId, `User Status Updated: ${status}`, details, actor, role);
-
-      return res.status(200).json({ success: true, message: `User status successfully updated to ${status}` });
-    }
-  } catch (error) {
-    console.error('❌ Error handling user status/termination action:', error.message);
-    return res.status(500).json({ error: 'Internal Server Error' });
-  }
-});
-
-
+// ============================================================================
+// 7. SERVER BOOTSTRAP
+// ============================================================================
 
 server.listen(PORT, () => {
-  console.log(`Server running with WebSockets on http://localhost:${PORT}`);
+    console.log(`🚀 Kinetic Code POS Enterprise Server running with WebSockets on http://localhost:${PORT}`);
 });
+

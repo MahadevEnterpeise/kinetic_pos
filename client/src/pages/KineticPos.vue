@@ -113,7 +113,7 @@ const shopId = sessionStorage.getItem('shopid');
 
 onMounted(async () => {
   if (!user) {
-    router.push('/');
+    router.push('/auth');
     return;
   }
 
@@ -173,7 +173,7 @@ async function termination(d) {
 function logout() {
   sessionStorage.removeItem('userToken');
   sessionStorage.removeItem('shopId');
-  router.push('/');
+  router.push('/auth');
 }
 </script>
 

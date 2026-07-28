@@ -1,4 +1,5 @@
 const mysql = require('mysql2');
+const crypto = require('crypto');
 const { generateUID, generateSID } = require('../utils/idGenerator');
 
 const pool = mysql.createPool({
@@ -13,6 +14,17 @@ const pool = mysql.createPool({
 });
 
 const db = pool.promise();
+
+// Password hashing helper for the seed admin
+const hashPassword = (password) => {
+  return new Promise((resolve, reject) => {
+    const salt = crypto.randomBytes(16).toString('hex');
+    crypto.scrypt(password, salt, 64, (err, derivedKey) => {
+      if (err) reject(err);
+      resolve(`${salt}:${derivedKey.toString('hex')}`);
+    });
+  });
+};
 
 async function initDatabase() {
   try {
@@ -124,6 +136,31 @@ async function initDatabase() {
       );
     `);
     console.log('✅ audit table verified/created successfully.');
+
+    // 8. Seed Default Kinetic Admin Account if not exists
+    const [adminCheck] = await db.query(`SELECT uid FROM users WHERE usertype = 'kinetic_admin' LIMIT 1`);
+    if (adminCheck.length === 0) {
+      const adminUid = generateUID();
+      const adminSid = generateSID();
+      const hashedAdminPassword = await hashPassword('admin123'); // Change default password as needed
+
+      await db.query(`
+        INSERT INTO users (
+          uid, sid, username, name, email, password, usertype, status, due, notifications_permitted
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0.00, ?)
+      `, [
+        adminUid,
+        adminSid,
+        'admin',
+        'Kinetic Admin',
+        'admin@kineticcode.com',
+        hashedAdminPassword,
+        'kinetic_admin',
+        'active',
+        1
+      ]);
+      console.log('✅ Default kinetic_admin account created (Username: admin | Password: admin123).');
+    }
 
   } catch (error) {
     console.error('❌ Database initialization failed:', error.message);

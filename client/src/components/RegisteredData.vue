@@ -1,5 +1,6 @@
 <template>
 <div class="user-management-container">
+
 <!-- Search Header -->
 <div class="search-box-wrapper">
 <input 
@@ -15,6 +16,7 @@ class="search-input"
 <div class="table-header"> 
 <div class="col id-col">ID</div>
 <div class="col name-col">Name</div>
+<div class="col role-col">Role</div>
 <div class="col date-col">Date Joined</div>
 <div class="col actions-col">Actions</div>
 </div>
@@ -31,14 +33,19 @@ class="table-row"
 >
 <div class="col id-col font-mono">{{ item.id }}</div>
 <div class="col name-col font-weight-bold">{{ item.name }}</div>
+<div class="col role-col">
+  <span class="role-badge" :class="item.usertype">{{ item.usertype }}</span>
+</div>
 <div class="col date-col">{{ item.date }}</div>
 <div class="col actions-col">
 <button class="action-btn hold-btn" @click="updateUserStatus(item, 'HOLD')">Hold</button>
 <button class="action-btn terminate-btn" @click="updateUserStatus(item, 'TERMINATED')">Terminate</button>
 </div>
 </div>
+
 </div>
 </div>
+
 </div>
 </template>
 
@@ -65,7 +72,7 @@ return;
 debounceTimeout = setTimeout(async () => {
 isLoading.value = true;
 try {
-const response = await fetch(`${link}/search?query=${encodeURIComponent(newQuery)}&shopId=${shopId}`, {
+const response = await fetch(`${link}/search?query=${encodeURIComponent(newQuery)}&shopId=${shopId}&userUid=${userToken}`, {
 method: 'GET',
 headers: {
 'Content-Type': 'application/json'
@@ -79,7 +86,7 @@ throw new Error('Search request failed');
 const data = await response.json();
 results.value = data.records || []; 
 } catch (error) {
-console.error('Error during live database query:', error);
+alert('Error during live database query: ' + error.message);
 results.value = [];
 } finally {
 isLoading.value = false;
@@ -88,77 +95,72 @@ isLoading.value = false;
 });
 
 async function updateUserStatus(item, newStatus) {
-  const actionText = newStatus === 'HOLD' ? 'put this user on Hold' : 'Terminate (delete) this user record';
-  if (!confirm(`Are you sure you want to ${actionText}?`)) return;
+const actionText = newStatus === 'HOLD' ? 'put this user on Hold' : 'Terminate (delete) this user record';
+if (!confirm(`Are you sure you want to ${actionText}?`)) return;
 
-  try {
-    let res;
-    if (newStatus === 'TERMINATED') {
-      res = await fetch(`${link}/terminate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${userToken}`,
-          'shop-id': shopId,
-          'client-uid': userToken
-        },
-        body: JSON.stringify({ 
-          id: item.id 
-        })
-      });
-    } else {
-      res = await fetch(`${link}/users/${item.id}/status`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'shop-id': shopId,
-          'Authorization': `Bearer ${userToken}`,
-          'client-uid': userToken
-        },
-        body: JSON.stringify({ 
-          status: newStatus,
-          uid: userToken 
-        })
-      });
-    }
-
-    if (!res.ok) throw new Error('Failed to process action');
-
-    // Trigger Audit Log API call using item.name instead of item.id
-    await fetch(`${link}/addAuditLog`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${userToken}`,
-        'shop-id': shopId,
-        'client-uid': userToken
-      },
-      body: JSON.stringify({
-        shopId: shopId,
-        action: newStatus === 'HOLD' ? 'HOLD_USER' : 'TERMINATE_USER',
-        details: `Marked user ${item.name} as ${newStatus}`,
-        category: 'USER_MANAGEMENT',
-        uid: userToken
-      })
-    }).catch(auditErr => {
-      console.warn('Audit log failed to record, but action succeeded:', auditErr);
-    });
-
-    results.value = results.value.filter(u => u.id !== item.id);
-    
-    // Updated success alert to use the name
-    const successMsg = newStatus === 'TERMINATED' 
-      ? `User ${item.name} successfully terminated` 
-      : `User ${item.name} successfully marked as ${newStatus}`;
-    alert(successMsg);
-
-  } catch (err) {
-    console.error('Action error:', err);
-    alert('Operation failed. Please try again.');
-  }
+try {
+let res;
+if (newStatus === 'TERMINATED') {
+res = await fetch(`${link}/terminate`, {
+method: 'POST',
+headers: {
+'Content-Type': 'application/json',
+'Authorization': `Bearer ${userToken}`,
+'shop-id': shopId,
+'client-uid': userToken
+},
+body: JSON.stringify({ 
+id: item.id 
+})
+});
+} else {
+res = await fetch(`${link}/users/${item.id}/status`, {
+method: 'PATCH',
+headers: {
+'Content-Type': 'application/json',
+'shop-id': shopId,
+'Authorization': `Bearer ${userToken}`,
+'client-uid': userToken
+},
+body: JSON.stringify({ 
+status: newStatus,
+uid: userToken 
+})
+});
 }
 
+if (!res.ok) throw new Error('Failed to process action');
 
+await fetch(`${link}/addAuditLog`, {
+method: 'POST',
+headers: {
+'Content-Type': 'application/json',
+'Authorization': `Bearer ${userToken}`,
+'shop-id': shopId,
+'client-uid': userToken
+},
+body: JSON.stringify({
+shopId: shopId,
+action: newStatus === 'HOLD' ? 'HOLD_USER' : 'TERMINATE_USER',
+details: `Marked user ${item.name} as ${newStatus}`,
+category: 'USER_MANAGEMENT',
+uid: userToken
+})
+}).catch(auditErr => {
+console.warn('Audit log failed to record, but action succeeded:', auditErr);
+});
+
+results.value = results.value.filter(u => u.id !== item.id);
+
+const successMsg = newStatus === 'TERMINATED' 
+? `User ${item.name} successfully terminated` 
+: `User ${item.name} successfully marked as ${newStatus}`;
+alert(successMsg);
+
+} catch (err) {
+alert('Operation failed: ' + err.message);
+}
+}
 </script>
 
 <style scoped>
@@ -176,7 +178,7 @@ font-family: inherit;
 
 .search-box-wrapper {
 width: 100%;
-max-width: 800px;
+max-width: 900px;
 margin-bottom: 20px;
 }
 
@@ -200,7 +202,7 @@ box-shadow: 0 0 0 3px rgba(0, 119, 182, 0.15);
 
 .table-card {
 width: 100%;
-max-width: 800px;
+max-width: 900px;
 background: #ffffff;
 border: 1px solid #e2e8f0;
 border-radius: 12px;
@@ -258,6 +260,10 @@ flex: 1.2;
 flex: 1.5;
 }
 
+.role-col {
+flex: 1;
+}
+
 .date-col {
 flex: 1;
 color: #64748b;
@@ -268,6 +274,17 @@ flex: 1.3;
 display: flex;
 gap: 8px;
 justify-content: flex-end;
+}
+
+.role-badge {
+display: inline-block;
+padding: 3px 8px;
+font-size: 0.75rem;
+font-weight: 600;
+border-radius: 4px;
+text-transform: uppercase;
+background-color: #e2e8f0;
+color: #334155;
 }
 
 .font-mono {

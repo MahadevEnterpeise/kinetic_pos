@@ -1,5 +1,7 @@
 const db = require('./db');
-const { generateUID, generateSID, generateSessionToken, generatePID } = require('../utils/idGenerator');
+const crypto = require('crypto');
+
+const { generateUID, generateSID, generateBillID, generateSessionToken, generatePID } = require('../utils/idGenerator');
 
 // ==========================================
 // INTERNAL HELPERS
@@ -25,6 +27,27 @@ function calculateMonthlyFee(totalMonthlySales) {
   }
   return Math.max(baseMonthlyFee, dynamicFee);
 }
+// Helper to hash passwords securely
+const hashPassword = (password) => {
+  return new Promise((resolve, reject) => {
+    const salt = crypto.randomBytes(16).toString('hex');
+    crypto.scrypt(password, salt, 64, (err, derivedKey) => {
+      if (err) reject(err);
+      resolve(`${salt}:${derivedKey.toString('hex')}`);
+    });
+  });
+};
+
+// Helper to verify passwords against stored hash
+const verifyPassword = (password, storedHash) => {
+  return new Promise((resolve, reject) => {
+    const [salt, key] = storedHash.split(':');
+    crypto.scrypt(password, salt, 64, (err, derivedKey) => {
+      if (err) reject(err);
+      resolve(crypto.timingSafeEqual(Buffer.from(key, 'hex'), derivedKey));
+    });
+  });
+};
 
 // ==========================================
 // DATABASE ACTIONS MODULE
@@ -36,92 +59,126 @@ module.exports = {
   // AUTHENTICATION & USER MANAGEMENT
   // ------------------------------------------
 
-  createNewUser: async (userData) => {
-    const { username, name, email, password, mobile, landline, pay_token, usertype, status, shopId } = userData;
+createNewUser: async (userData) => {
+  const { username, name, email, password, mobile, landline, pay_token, usertype, status, shopId } = userData;
 
-    try {
-      let uid;
-      let uidDuplicate = true;
-      while (uidDuplicate) {
-        uid = generateUID();
-        uidDuplicate = await checkIdExists(uid, 'uid');
-      }
-
-      let sid = null;
-      if (usertype === 'owner' || usertype === 'kineticpos') {
-        let sidDuplicate = true;
-        while (sidDuplicate) {
-          sid = generateSID();
-          sidDuplicate = await checkIdExists(sid, 'sid');
-        }
-      } else if (shopId) {
-        sid = shopId;
-      }
-
-      const billdate = new Date();
-      billdate.setMonth(billdate.getMonth() + 1); // Set initial bill date to 1 month from now
-
-      const queryText = `
-        INSERT INTO users (
-          uid, sid, username, name, email, password, 
-          mobile, landline, token, token_expires_at, pay_token, usertype, status, billdate, due, notifications_permitted
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.00, ?)
-      `;
-
-      const [result] = await db.query(queryText, [
-        uid, sid, username, name, email, password,
-        mobile || null, landline || null, 
-        null, null, pay_token || null,
-        usertype || 'customer', status || 'active', billdate, 1
-      ]);
-
-      return { result, uid, sid };
-    } catch (error) {
-      throw new Error(`[DB Error] Failed to insert new user: ${error.message}`);
+  try {
+    let uid;
+    let uidDuplicate = true;
+    while (uidDuplicate) {
+      uid = generateUID();
+      uidDuplicate = await checkIdExists(uid, 'uid');
     }
-  },
 
-  processLogin: async (username, password, usertype) => {
-    try {
-      const findUserQuery = `
-        SELECT uid, sid, status 
-        FROM users 
-        WHERE username = ? AND password = ? AND usertype = ?
-      `;
-      const [users] = await db.query(findUserQuery, [username, password, usertype]);
+    let sid = null;
 
-      if (users.length === 0 || users[0].status.toUpperCase() === 'HOLD') {
-        return null;
+    if (usertype === 'kineticpos') {
+      let sidDuplicate = true;
+      while (sidDuplicate) {
+        sid = generateSID();
+        sidDuplicate = await checkIdExists(sid, 'sid');
       }
-
-      const user = users[0];
-      let incomingToken;
-      let tokenDuplicate = true;
-      while (tokenDuplicate) {
-        incomingToken = generateSessionToken();
-        tokenDuplicate = await checkIdExists(incomingToken, 'token');
+    } else if (shopId && shopId !== 'null' && shopId !== 'undefined' && shopId !== 'GLOBAL') {
+      sid = shopId;
+    } else if (usertype === 'owner') {
+      let sidDuplicate = true;
+      while (sidDuplicate) {
+        sid = generateSID();
+        sidDuplicate = await checkIdExists(sid, 'sid');
       }
-
-      const expiryTime = new Date();
-      expiryTime.setHours(expiryTime.getHours() + 24);
-
-      const updateTokenQuery = `
-        UPDATE users 
-        SET token = ?, token_expires_at = ? 
-        WHERE uid = ?
-      `;
-      await db.query(updateTokenQuery, [incomingToken, expiryTime, user.uid]);
-
-      return {
-        uid: user.uid,
-        sid: user.sid || null,
-        token: incomingToken
-      };
-    } catch (error) {
-      throw new Error(`[DB Error] Login processing failed: ${error.message}`);
     }
-  },
 
+    let billdate = null;
+    if (usertype === 'owner') {
+      billdate = new Date();
+      billdate.setMonth(billdate.getMonth() + 1);
+    }
+
+    // Hash the password before saving to database
+    const hashedPassword = await hashPassword(password);
+
+    const queryText = `
+      INSERT INTO users (
+        uid, sid, username, name, email, password, 
+        mobile, landline, token, token_expires_at, pay_token, usertype, status, billdate, due, notifications_permitted
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.00, ?)
+    `;
+
+    const [result] = await db.query(queryText, [
+      uid, 
+      sid, 
+      username, 
+      name, 
+      email, 
+      hashedPassword,
+      mobile || null, 
+      landline || null, 
+      null, 
+      null, 
+      pay_token || null,
+      usertype || 'customer', 
+      status || 'active', 
+      billdate, 
+      1
+    ]);
+
+    return { result, uid, sid };
+
+  } catch (error) {
+    throw new Error(`[DB Error] Failed to insert new user: ${error.message}`);
+  }
+},
+
+
+processLogin: async (username, password, usertype) => {
+  try {
+    // Fetch user by username and usertype first (do not filter by plaintext password anymore)
+    const findUserQuery = `
+      SELECT uid, sid, status, password 
+      FROM users 
+      WHERE username = ? AND usertype = ?
+    `;
+    const [users] = await db.query(findUserQuery, [username, usertype]);
+
+    if (users.length === 0 || users[0].status.toUpperCase() === 'HOLD') {
+      return null;
+    }
+
+    const user = users[0];
+
+    // Verify the incoming password against the stored hashed password
+    const isPasswordValid = await verifyPassword(password, user.password);
+    if (!isPasswordValid) {
+      return null;
+    }
+
+    let incomingToken;
+    let tokenDuplicate = true;
+    while (tokenDuplicate) {
+      incomingToken = generateSessionToken();
+      tokenDuplicate = await checkIdExists(incomingToken, 'token');
+    }
+
+    const expiryTime = new Date();
+    expiryTime.setHours(expiryTime.getHours() + 24);
+
+    const updateTokenQuery = `
+      UPDATE users 
+      SET token = ?, token_expires_at = ? 
+      WHERE uid = ?
+    `;
+    await db.query(updateTokenQuery, [incomingToken, expiryTime, user.uid]);
+
+    return {
+      uid: user.uid,
+      sid: user.sid || null,
+      token: incomingToken
+    };
+
+  } catch (error) {
+    throw new Error(`[DB Error] Login processing failed: ${error.message}`);
+  }
+},
   saveLogData: async (username, password, usertype, status) => {
     try {
       const queryText = `
@@ -145,36 +202,50 @@ module.exports = {
     }
   },
 
-  searchShopUsers: async (shopId, searchTerm) => {
-    try {
-      const cleanSearch = searchTerm.trim();
-      const namePattern = `%${cleanSearch}%`;
+  searchShopUsers: async (shopId, searchTerm, userUid) => {
+  try {
+    const cleanSearch = searchTerm ? searchTerm.trim() : '';
+    const namePattern = `%${cleanSearch}%`;
 
-      let queryText = `
-        SELECT 
-          uid AS id, 
-          name, 
-          DATE_FORMAT(created_at, '%Y-%m-%d') AS date, 
-          sid AS shop_id,
-          usertype
-        FROM users 
-        WHERE (name LIKE ? OR uid = ?)
-      `;
-      let params = [namePattern, cleanSearch];
+    let queryText = `
+      SELECT 
+        uid AS id, 
+        name, 
+        username,
+        usertype,
+        DATE_FORMAT(created_at, '%Y-%m-%d') AS date, 
+        sid AS shop_id
+      FROM users 
+      WHERE (name LIKE ? OR username LIKE ? OR uid LIKE ?)
+    `;
+    let params = [namePattern, namePattern, namePattern];
 
-      if (shopId && shopId !== 'null' && shopId !== 'undefined' && shopId !== 'GLOBAL') {
-        queryText += ` AND sid = ?`;
-        params.push(shopId);
-      } else {
-        queryText += ` AND usertype = 'owner'`;
+    if (userUid && userUid !== 'null' && userUid !== 'undefined') {
+      const [userRows] = await db.query(`SELECT usertype FROM users WHERE uid = ? LIMIT 1`, [userUid]);
+      if (userRows.length > 0) {
+        const requestingUserType = userRows[0].usertype;
+
+        if (requestingUserType === 'manager') {
+          queryText += ` AND usertype NOT IN ('owner', 'kinetic_admin')`;
+        } else if (requestingUserType === 'owner') {
+          queryText += ` AND usertype != 'kinetic_admin'`;
+        }
       }
-
-      const [rows] = await db.query(queryText, params);
-      return rows;
-    } catch (error) {
-      throw new Error(`[DB Error] Search processing failed: ${error.message}`);
     }
-  },
+
+    if (shopId && shopId !== 'null' && shopId !== 'undefined' && shopId !== 'GLOBAL') {
+      queryText += ` AND sid = ?`;
+      params.push(shopId);
+    }
+
+    const [rows] = await db.query(queryText, params);
+    return rows;
+  } catch (error) {
+    throw new Error(`[DB Error] Search processing failed: ${error.message}`);
+  }
+}
+,
+
 
   terminatePosOwner: async (shopId) => {
     try {
@@ -192,58 +263,111 @@ module.exports = {
   // DASHBOARDS & ANALYTICS
   // ------------------------------------------
 
-  getOwnerDashboard: async (sid) => {
+  getOwnerDashboard: async (sid, uid) => {
+  try {
+    const shopQuery = `SELECT name, currency FROM users WHERE sid = ? AND uid = ? AND usertype = 'owner' LIMIT 1`;
+    const [shopRows] = await db.query(shopQuery, [sid, uid]);
+
+    if (shopRows.length === 0) {
+      return null;
+    }
+
+    const shopName = shopRows[0].name || 'Unknown Shop';
+    const activeCurrency = shopRows[0].currency || 'LKR';
+
+    const metricsQuery = `
+      SELECT 
+      IFNULL(SUM((price * qty) + ((price * qty * sc) / 100) - (((price * qty * sc) / 100) * rc / 100)), 0) as total_sales,
+      COUNT(DISTINCT billid) as bill_count
+      FROM shopbill 
+      WHERE sid = ? AND status != 'subscription_paid'
+    `;
+    const [metricsRows] = await db.query(metricsQuery, [sid]);
+    const sales = metricsRows[0].total_sales;
+    const count = metricsRows[0].bill_count;
+
+    const billsQuery = `
+      SELECT 
+      mobile, 
+      DATE_FORMAT(time, '%Y/%m/%d,%H:%i:%s') as time, 
+      SUM((price * qty) + ((price * qty * sc) / 100) - (((price * qty * sc) / 100) * rc / 100)) as price, 
+      billnum 
+      FROM shopbill 
+      WHERE sid = ? AND status != 'subscription_paid'
+      GROUP BY billnum 
+      ORDER BY time DESC 
+      LIMIT 5
+    `;
+    const [bills] = await db.query(billsQuery, [sid]);
+
+    const trendsQuery = `
+      SELECT name
+      FROM shopbill 
+      WHERE sid = ? AND status != 'subscription_paid' AND time >= NOW() - INTERVAL 30 DAY
+      GROUP BY pid 
+      ORDER BY SUM(qty) DESC 
+      LIMIT 3
+    `;
+    const [trends] = await db.query(trendsQuery, [sid]);
+
+    return {
+      bills,
+      trends: trends.length > 0 ? trends : [{ name: 'No items sold yet' }],
+      shop: shopName,
+      sales,
+      count,
+      currency: activeCurrency
+    };
+
+  } catch (error) {
+    throw new Error(`[DB Error] Failed to generate owner dashboard data: ${error.message}`);
+  }
+},
+
+    getAccountSummaryForEmail: async (shopId) => {
     try {
-      const shopQuery = `SELECT name, currency FROM users WHERE sid = ? AND usertype = 'owner' LIMIT 1`;
-      const [shopRows] = await db.query(shopQuery, [sid]);
-      const shopName = shopRows.length > 0 ? shopRows[0].name : 'Unknown Shop';
-      const activeCurrency = shopRows.length > 0 ? shopRows[0].currency : 'LKR';
+      // 1. Fetch shop name, owner email, and due amount from users
+      const userQuery = `SELECT name, email, due, currency FROM users WHERE sid = ? AND usertype = 'owner' LIMIT 1`;
+      const [userRows] = await db.query(userQuery, [shopId]);
 
+      if (userRows.length === 0) {
+        return null;
+      }
+
+      const rawShopName = userRows[0].name || 'Unknown Shop';
+      const ownerEmail = userRows[0].email;
+      const dueAmount = Number(userRows[0].due || 0).toFixed(2);
+
+      // 2. Calculate total sales for the shop
       const metricsQuery = `
-        SELECT 
-          IFNULL(SUM((price * qty) + ((price * qty * sc) / 100) - (((price * qty * sc) / 100) * rc / 100)), 0) as total_sales,
-          COUNT(DISTINCT billid) as bill_count
+        SELECT IFNULL(SUM((price * qty) + ((price * qty * sc) / 100) - (((price * qty * sc) / 100) * rc / 100)), 0) as total_sales
         FROM shopbill 
         WHERE sid = ? AND status != 'subscription_paid'
       `;
-      const [metricsRows] = await db.query(metricsQuery, [sid]);
-      const sales = metricsRows[0].total_sales;
-      const count = metricsRows[0].bill_count;
+      const [metricsRows] = await db.query(metricsQuery, [shopId]);
+      const totalSales = Number(metricsRows[0].total_sales || 0).toFixed(2);
 
-      const billsQuery = `
-        SELECT 
-          mobile, 
-          DATE_FORMAT(time, '%Y/%m/%d,%H:%i:%s') as time, 
-          SUM((price * qty) + ((price * qty * sc) / 100) - (((price * qty * sc) / 100) * rc / 100)) as price, 
-          billnum 
+      // 3. Get the latest subscription charge/payment amount recorded
+      const paymentQuery = `
+        SELECT price 
         FROM shopbill 
-        WHERE sid = ? AND status != 'subscription_paid'
-        GROUP BY billnum 
+        WHERE sid = ? AND pid = 'SUB_FEE' 
         ORDER BY time DESC 
-        LIMIT 5
+        LIMIT 1
       `;
-      const [bills] = await db.query(billsQuery, [sid]);
-
-      const trendsQuery = `
-        SELECT pid as name 
-        FROM shopbill 
-        WHERE sid = ? AND status != 'subscription_paid'
-        GROUP BY pid 
-        ORDER BY SUM(qty) DESC 
-        LIMIT 3
-      `;
-      const [trends] = await db.query(trendsQuery, [sid]);
+      const [paymentRows] = await db.query(paymentQuery, [shopId]);
+      const chargeAmount = paymentRows.length > 0 ? Number(paymentRows[0].price || 0).toFixed(2) : '0.00';
 
       return {
-        bills,
-        trends: trends.length > 0 ? trends : [{ name: 'No items sold yet' }],
-        shop: shopName,
-        sales,
-        count,
-        currency: activeCurrency
+        rawShopName,
+        ownerEmail,
+        totalSales,
+        dueAmount,
+        chargeAmount
       };
+
     } catch (error) {
-      throw new Error(`[DB Error] Failed to generate owner dashboard data: ${error.message}`);
+      throw new Error(`[DB Error] Failed to fetch account summary for email: ${error.message}`);
     }
   },
 
@@ -288,7 +412,7 @@ module.exports = {
           SELECT 
             DATE_FORMAT(time, '%a') AS day_name,
             DATE(time) AS raw_date,
-            IFNULL(SUM((price * qty) + ((price * qty * sc) / 100) - (((price * qty * sc) / 100) * rc / 100)) * 0.011, 0) AS revenue
+            COUNT(DISTINCT sid) AS revenue
           FROM shopbill
           WHERE time >= DATE_SUB(CURDATE(), INTERVAL 6 DAY) AND status != 'subscription_paid'
           GROUP BY DATE(time)
@@ -416,6 +540,23 @@ module.exports = {
     }
   },
 
+  generateUniqueBillNum: async (shopId) => {
+    let isUnique = false;
+    let billNum = '';
+
+    while (!isUnique) {
+      billNum = generateBillID(); 
+      const [existing] = await db.query(
+        `SELECT billnum FROM shopbill WHERE billnum = ? AND sid = ? LIMIT 1`,
+        [billNum, shopId]
+      );
+      if (existing.length === 0) {
+        isUnique = true;
+      }
+    }
+    return billNum;
+  },
+
   addCategoryName: async (shopId, categoryName) => {
     try {
       const catPid = `CAT-${categoryName.toUpperCase().replace(/\s+/g, '_')}`;
@@ -461,7 +602,6 @@ module.exports = {
       const catPid = safeStr.startsWith('CAT-') 
         ? safeStr 
         : `CAT-${safeStr.toUpperCase().replace(/\s+/g, '_')}`;
-        
       const queryText = 'DELETE FROM products WHERE (pid = ? OR category = ?) AND sid = ?';
       const [result] = await db.query(queryText, [catPid, identifier, shopId]);
       return result.affectedRows > 0;
@@ -515,10 +655,14 @@ module.exports = {
   saveBillItems: async (shopId, billNum, items, status = 'paid', clientUid = null, customerMobile = null, sc = 0, rc = 0) => {
     try {
       let resolvedMobile = customerMobile;
-      if (!resolvedMobile) {
-        const [shopRows] = await db.query(`SELECT mobile FROM users WHERE sid = ? LIMIT 1`, [shopId]);
-        if (shopRows.length > 0) {
-          resolvedMobile = shopRows[0].mobile || null;
+
+      if (!resolvedMobile && clientUid) {
+        const [userRows] = await db.query(
+          `SELECT mobile FROM users WHERE sid = ? AND uid = ? LIMIT 1`, 
+          [shopId, clientUid]
+        );
+        if (userRows.length > 0) {
+          resolvedMobile = userRows[0].mobile || null;
         }
       }
 
@@ -560,33 +704,62 @@ module.exports = {
     }
   },
 
-  getPastOrdersHistory: async (shopId) => {
+  getPastOrdersHistory: async (sid) => {
     try {
-      const shopQuery = `SELECT currency FROM users WHERE sid = ? AND usertype = 'owner' LIMIT 1`;
-      const [shopRows] = await db.query(shopQuery, [shopId]);
-      const currency = shopRows.length > 0 ? shopRows[0].currency : 'Rs.';
-
-      const queryText = `
+      const query = `
         SELECT 
-          billnum AS id,
-          GROUP_CONCAT(name SEPARATOR ' & ') AS name,
-          SUM(qty) AS units,
-          SUM((price * qty) + ((price * qty * sc) / 100) - (((price * qty * sc) / 100) * rc / 100)) AS total,
-          DATE_FORMAT(MIN(time), '%Y-%m-%d') AS date,
-          status,
-          MAX(client) AS client,
-          MAX(mobile) AS mobile,
-          MAX(sc) AS sc,
-          MAX(rc) AS rc
-        FROM shopbill
-        WHERE sid = ? AND status != 'subscription_paid'
-        GROUP BY billnum, status
-        ORDER BY MIN(time) DESC
+          b.billnum, 
+          b.sid, 
+          b.mobile, 
+          b.pid, 
+          b.name, 
+          b.qty, 
+          b.price, 
+          b.sc, 
+          b.rc, 
+          b.status, 
+          b.client, 
+          b.time,
+          u.name AS actorName
+        FROM shopbill b
+        LEFT JOIN users u ON b.client = u.uid AND b.sid = u.sid
+        WHERE b.sid = ?
+        ORDER BY b.time DESC
       `;
-      const [rows] = await db.query(queryText, [shopId]);
-      return rows.map(row => ({ ...row, currency }));
+      const [rows] = await db.query(query, [sid]);
+
+      const groupedMap = {};
+      rows.forEach(row => {
+        const orderId = row.billnum;
+        if (!groupedMap[orderId]) {
+          groupedMap[orderId] = {
+            id: orderId,
+            billnum: row.billnum,
+            total: 0,
+            date: row.time,
+            status: row.status,
+            mobile: row.mobile,
+            staffName: row.actorName || 'System / Client',
+            currency: 'LKR',
+            items: []
+          };
+        }
+        const itemTotal = (Number(row.price) * Number(row.qty));
+        groupedMap[orderId].total += itemTotal;
+
+        if (row.name || row.pid) {
+          groupedMap[orderId].items.push({
+            itemid: row.pid,
+            name: row.name,
+            qty: Number(row.qty !== undefined ? row.qty : (row.QTY || 0)), 
+            price: row.price
+          });
+        }
+      });
+
+      return Object.values(groupedMap);
     } catch (error) {
-      throw new Error(`[DB Error] Failed to fetch historical orders: ${error.message}`);
+      throw new Error(`[DB Error] Failed to fetch past orders history: ${error.message}`);
     }
   },
 
@@ -646,55 +819,110 @@ module.exports = {
     }
   },
 
-  updateOrderStatus: async (billNum, shopId, status, items, clientUid = null, sc = 0, rc = 0) => {
+    updateOrderStatusSimple: async (billNum, shopId, status) => {
     try {
-      let resolvedMobile = null;
-      const [shopRows] = await db.query(`SELECT mobile FROM users WHERE sid = ? LIMIT 1`, [shopId]);
-      if (shopRows.length > 0) {
-        resolvedMobile = shopRows[0].mobile || null;
-      }
+      // 1. Fetch the items from the bill before changing/deleting or check what was ordered
+      const [orderItems] = await db.query(
+        `SELECT pid, qty FROM shopbill WHERE (billnum = ? OR billid = ?) AND sid = ?`,
+        [billNum, billNum, shopId]
+      );
 
-      await db.query('DELETE FROM shopbill WHERE billnum = ? AND sid = ?', [billNum, shopId]);
-      const queryText = `
-        INSERT INTO shopbill (billid, billnum, sid, mobile, pid, name, qty, price, sc, rc, status, client, time)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
-      `;
+      // 2. Update the status of the bill
+      await db.query(
+        `UPDATE shopbill SET status = ? WHERE (billnum = ? OR billid = ?) AND sid = ?`,
+        [status, billNum, billNum, shopId]
+      );
 
-      for (const item of items) {
-        const itemId = item.itemid || item.id;
-        const name = item.name;
-        const qty = Number(item.qty) || 1;
-        const incomingPrice = Number(item.price) || 0;
-        const unitPrice = qty > 0 ? incomingPrice / qty : 0;
-
-        await db.query(queryText, [
-          billNum, 
-          billNum, 
-          shopId, 
-          resolvedMobile, 
-          itemId, 
-          name, 
-          qty, 
-          unitPrice, 
-          Number(sc) || 0,
-          Number(rc) || 0,
-          status, 
-          clientUid || null
-        ]);
-
-        if (status === 'paid') {
-          await db.query(
-            `UPDATE products SET stock = stock - ? WHERE pid = ? AND sid = ?`,
-            [qty, itemId, shopId]
-          );
+      // 3. If it's cancelled or rejected, restore the stock for each item
+      if (status === 'cancelled' || status === 'rejected') {
+        for (const item of orderItems) {
+          if (item.pid && item.pid !== 'SUB_FEE') {
+            await db.query(
+              `UPDATE products SET stock = stock + ? WHERE pid = ? AND sid = ?`,
+              [item.qty, item.pid, shopId]
+            );
+          }
         }
       }
 
       return true;
     } catch (error) {
-      throw new Error(`[DB Error] Failed to update order state: ${error.message}`);
+      throw new Error(`[DB Error] Failed to update order status: ${error.message}`);
     }
   },
+
+
+    updateOrderStatus: async (billNum, shopId, status, items, clientUid = null, sc = 0, rc = 0) => {
+  try {
+    let resolvedMobile = null;
+    const [shopRows] = await db.query(`SELECT mobile FROM users WHERE sid = ? LIMIT 1`, [shopId]);
+    
+    if (shopRows.length > 0) {
+      resolvedMobile = shopRows[0].mobile || null;
+    }
+
+    await db.query('DELETE FROM shopbill WHERE billnum = ? AND sid = ?', [billNum, shopId]);
+
+    const queryText = `
+      INSERT INTO shopbill (billid, billnum, sid, mobile, pid, name, qty, price, sc, rc, status, client, time)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+    `;
+
+    // Ensure items is a valid array before iterating
+    const validItems = Array.isArray(items) ? items : [];
+
+    for (const item of validItems) {
+      if (!item || typeof item !== 'object') {
+        continue;
+      }
+
+      // Safeguard against malformed keys, fallback to standard properties
+      const itemId = item.pid || item.itemid || item.id;
+      
+      if (!itemId || itemId === 'p') {
+        throw new Error(`Item missing valid product ID (pid/id): ${JSON.stringify(item)}`);
+      }
+
+      const name = item.name || 'Unnamed Item';
+      const qty = Number(item.qty) || 1;
+      const incomingPrice = Number(item.price) || 0;
+      const unitPrice = qty > 0 ? incomingPrice / qty : 0;
+
+      await db.query(queryText, [
+        billNum, 
+        billNum, 
+        shopId, 
+        resolvedMobile, 
+        itemId, 
+        name, 
+        qty, 
+        unitPrice, 
+        Number(sc) || 0,
+        Number(rc) || 0,
+        status, 
+        clientUid || null
+      ]);
+
+      if (status === 'paid' || status === 'accepted') {
+        await db.query(
+          `UPDATE products SET stock = stock - ? WHERE pid = ? AND sid = ?`,
+          [qty, itemId, shopId]
+        );
+      }
+
+      if (status === 'rejected' || status === 'cancelled') {
+        await db.query(
+          `UPDATE products SET stock = stock + ? WHERE pid = ? AND sid = ?`,
+          [qty, itemId, shopId]
+        );
+      }
+    }
+
+    return true;
+  } catch (error) {
+    throw new Error(`[DB Error] Failed to update order state: ${error.message}`);
+  }
+},
 
   deleteBillRecord: async (shopId, billId) => {
     try {
@@ -703,6 +931,55 @@ module.exports = {
       return result.affectedRows > 0;
     } catch (error) {
       throw new Error(`[DB Error] Failed to delete bill record: ${error.message}`);
+    }
+  },
+
+  async getSalesByPeriod(shopId, user, period) {
+    try {
+      const [userRows] = await db.query(
+        `SELECT name FROM users WHERE (sid = ? OR uid = ?) AND usertype = 'owner' LIMIT 1`,
+        [shopId, user]
+      );
+      const shopName = userRows.length > 0 && userRows[0].name ? userRows[0].name : `Shop_${shopId}`;
+
+      const now = new Date();
+      let startDate = new Date(now);
+      let endDate = new Date(now);
+
+      if (period === 'today') {
+        startDate.setHours(0, 0, 0, 0);
+        endDate.setHours(23, 59, 59, 999);
+      } else if (period === 'yesterday') {
+        startDate.setDate(startDate.getDate() - 1);
+        startDate.setHours(0, 0, 0, 0);
+        endDate.setDate(endDate.getDate() - 1);
+        endDate.setHours(23, 59, 59, 999);
+      } else if (period === 'week') {
+        startDate.setDate(startDate.getDate() - 7);
+        startDate.setHours(0, 0, 0, 0);
+        endDate.setHours(23, 59, 59, 999);
+      } else if (period === 'month') {
+        startDate.setDate(startDate.getDate() - 30);
+        startDate.setHours(0, 0, 0, 0);
+        endDate.setHours(23, 59, 59, 999);
+      } else {
+        startDate.setDate(startDate.getDate() - 30);
+        startDate.setHours(0, 0, 0, 0);
+        endDate.setHours(23, 59, 59, 999);
+      }
+
+      const startDateStr = startDate.toISOString().slice(0, 19).replace('T', ' ');
+      const endDateStr = endDate.toISOString().slice(0, 19).replace('T', ' ');
+
+      const [bills] = await db.query(
+        `SELECT * FROM shopbill WHERE sid = ? AND time BETWEEN ? AND ? ORDER BY time DESC`,
+        [shopId, startDateStr, endDateStr]
+      );
+
+      return { shopName, bills, startDate: startDateStr, endDate: endDateStr };
+    } catch (error) {
+      console.error("Error in getSalesByPeriod:", error);
+      throw error;
     }
   },
 
@@ -780,8 +1057,8 @@ module.exports = {
         SELECT sid, due, pay_token 
         FROM users 
         WHERE usertype = 'owner' 
-          AND pay_token IS NOT NULL 
-          AND billdate <= CURDATE()
+        AND pay_token IS NOT NULL 
+        AND billdate <= CURDATE()
       `;
       const [rows] = await db.query(query);
       return rows;
@@ -827,8 +1104,8 @@ module.exports = {
         UPDATE users 
         SET status = 'locked'
         WHERE usertype = 'owner' 
-          AND due > 0.00 
-          AND DATEDIFF(CURDATE(), billdate) >= 3
+        AND due > 0.00 
+        AND DATEDIFF(CURDATE(), billdate) >= 3
       `;
       await db.query(checkLocksQuery);
       return true;
@@ -990,36 +1267,88 @@ module.exports = {
     }
   },
 
-    getUserByUid: async (uid) => {
+  getUserByUid: async (uid) => {
     try {
-      const queryText = `SELECT uid, name, usertype, sid FROM users WHERE uid = ? LIMIT 1`;
+      const queryText = `SELECT uid, name, usertype, sid, email FROM users WHERE uid = ? LIMIT 1`;
       const [rows] = await db.query(queryText, [uid]);
       return rows.length > 0 ? rows[0] : null;
     } catch (error) {
       throw new Error(`[DB Error] Failed to fetch user by UID: ${error.message}`);
     }
   },
+
+  async getShopById(shopId) {
+    try {
+      const [rows] = await db.query(`SELECT name FROM products WHERE sid = ? LIMIT 1`, [shopId]);
+      if (rows && rows.length > 0) {
+        return rows[0];
+      }
+
+      const [userRows] = await db.query(`SELECT shopname AS name FROM users WHERE sid = ? LIMIT 1`, [shopId]);
+      if (userRows && userRows.length > 0) {
+        return userRows[0];
+      }
+
+      return null;
+    } catch (error) {
+      console.error("Error in getShopById:", error);
+      return null;
+    }
+  },
+
   terminateUserByUid: async (userId) => {
-  try {
-    const queryText = `DELETE FROM users WHERE uid = ?`;
-    const [result] = await db.query(queryText, [userId]);
-    console.log('terminated ',result.affectedRows);
-    return result.affectedRows > 0;
-  } catch (error) {
-    throw new Error(`[DB Error] Failed to terminate user: ${error.message}`);
-  }
-}
-,
+    try {
+      const queryText = `DELETE FROM users WHERE uid = ?`;
+      const [result] = await db.query(queryText, [userId]);
+      return result.affectedRows > 0;
+    } catch (error) {
+      throw new Error(`[DB Error] Failed to terminate user: ${error.message}`);
+    }
+  },
 
-updateUserStatus: async (shopId, userId, status) => {
-  try {
-    const queryText = `UPDATE users SET status = ? WHERE uid = ? AND sid = ?`;
-    const [result] = await db.query(queryText, [status, userId, shopId]);
-    return result.affectedRows > 0;
-  } catch (error) {
-    throw new Error(`[DB Error] Failed to update user status: ${error.message}`);
-  }
-},
+  updateUserStatus: async (shopId, userId, status) => {
+    try {
+      const queryText = `UPDATE users SET status = ? WHERE uid = ? AND sid = ?`;
+      const [result] = await db.query(queryText, [status, userId, shopId]);
+      return result.affectedRows > 0;
+    } catch (error) {
+      throw new Error(`[DB Error] Failed to update user status: ${error.message}`);
+    }
+  },
 
+  // ------------------------------------------
+  // UNREAD NOTIFICATIONS
+  // ------------------------------------------
+
+  getUnreadAuditCount: async (shopId) => {
+    try {
+      const queryText = `
+        SELECT COUNT(*) as count 
+        FROM shop_audit_logs 
+        WHERE shop_id = ? 
+        AND (is_read = 0 OR is_read IS NULL) 
+        AND LOWER(TRIM(actor_role)) != 'owner'
+      `;
+      const [rows] = await db.query(queryText, [shopId]);
+      return rows[0].count || 0;
+    } catch (error) {
+      throw new Error(`[DB Error] Failed to fetch unread audit count: ${error.message}`);
+    }
+  },
+
+  markAuditLogsAsRead: async (shopId) => {
+    try {
+      const queryText = `
+        UPDATE shop_audit_logs 
+        SET is_read = 1 
+        WHERE shop_id = ? 
+        AND (is_read = 0 OR is_read IS NULL)
+      `;
+      const [result] = await db.query(queryText, [shopId]);
+      return result.affectedRows > 0;
+    } catch (error) {
+      throw new Error(`[DB Error] Failed to mark audit logs as read: ${error.message}`);
+    }
+  }
 
 };

@@ -94,6 +94,7 @@ const targetUid = sessionStorage.getItem('userToken');
 // Fallback to 'GLOBAL' if shopId is missing, allowing the admin dashboard to fetch aggregated sales across all shops
 const shopId = sessionStorage.getItem('shopId') || sessionStorage.getItem('shopid') || 'GLOBAL';
 fetchSalesData(targetUid, shopId);
+alert(shopId);
 });
 
 </script>

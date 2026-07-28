@@ -37,7 +37,7 @@
     <!-- Right Side: POS Billing Panel -->
     <div class="client-bill">
       <div class="bill-header">
-        <h1 id="h1">Current Bill</h1>
+        <h1 id="h1">Current Bill <span v-if="isOffline" class="offline-badge">🔌 Offline</span></h1>
       </div>
 
       <div class="bills">
@@ -79,16 +79,19 @@
           <span>{{ Number(total || 0).toFixed(2) }} {{ currency }}</span>
         </div>
 
-        <button class="pay-btn" @click="bill()" :disabled="saving">{{ button }}</button>
+        <div class="action-buttons">
+          <button class="hold-btn" @click="holdBill" :disabled="saving">Hold Bill</button>
+          <button class="pay-btn" @click="bill('paid')" :disabled="saving">{{ button }}</button>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { onMounted, ref, computed } from 'vue';
+import { onMounted, ref, computed, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
-import { link } from '../assets/Link';
+import { link, printReceipt } from '../assets/Link';
 
 const router = useRouter();
 
@@ -103,13 +106,118 @@ const openeditems = ref([]);
 const sc = ref(0);
 const rc = ref(0);
 const billshow = ref(false);
-const currency = ref('');
+const currency = ref('LKR');
 const tempQtys = ref({});
 const saving = ref(false);
+const isOffline = ref(!navigator.onLine);
 
 const Token = sessionStorage.getItem('userToken');
 const shopId = sessionStorage.getItem('shopId') || sessionStorage.getItem('shopid');
 const clientUid = Token;
+
+// --- INDEXEDDB SETUP & HELPERS ---
+const DB_NAME = 'KineticPOS_Local';
+const DB_VERSION = 1;
+
+function openLocalDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onerror = (e) => reject('IndexedDB error: ' + e.target.error);
+    request.onsuccess = (e) => resolve(e.target.result);
+    request.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains('catalog')) {
+        db.createObjectStore('catalog', { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains('offline_bills')) {
+        db.createObjectStore('offline_bills', { keyPath: 'tempId', autoIncrement: true });
+      }
+    };
+  });
+}
+
+async function saveCatalogToCache(categories, curr) {
+  try {
+    const db = await openLocalDb();
+    const tx = db.transaction(['catalog'], 'readwrite');
+    const store = tx.objectStore('catalog');
+    store.put({ id: 'main_menu', categories, currency: curr });
+  } catch (err) {
+    console.error('Failed to cache catalog locally:', err);
+  }
+}
+
+async function loadCatalogFromCache() {
+  try {
+    const db = await openLocalDb();
+    return new Promise((resolve) => {
+      const tx = db.transaction(['catalog'], 'readonly');
+      const store = tx.objectStore('catalog');
+      const req = store.get('main_menu');
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    });
+  } catch (err) {
+    return null;
+  }
+}
+
+async function saveBillOffline(payload) {
+  const db = await openLocalDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(['offline_bills'], 'readwrite');
+    const store = tx.objectStore('offline_bills');
+    const req = store.add({ ...payload, tempId: 'OFFLINE_' + Date.now() });
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+// --- SYNC ENGINE ---
+async function syncOfflineBills() {
+  if (!navigator.onLine) return;
+  try {
+    const db = await openLocalDb();
+    const tx = db.transaction(['offline_bills'], 'readwrite');
+    const store = tx.objectStore('offline_bills');
+    const req = store.getAll();
+
+    req.onsuccess = async () => {
+      const offlineBills = req.result;
+      if (!offlineBills || offlineBills.length === 0) return;
+
+      for (const billData of offlineBills) {
+        try {
+          const res = await fetch(`${link}/bills`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${Token}`,
+              'Content-Type': 'application/json',
+              'shop-id': shopId,
+              'client-uid': clientUid
+            },
+            body: JSON.stringify(billData)
+          });
+          if (res.ok) {
+            const delTx = db.transaction(['offline_bills'], 'readwrite');
+            delTx.objectStore('offline_bills').delete(billData.tempId);
+          }
+        } catch (e) {
+          console.warn('Sync pending for bill item due to network state.');
+        }
+      }
+    };
+  } catch (err) {
+    console.error('Error during background bill sync:', err);
+  }
+}
+
+function updateNetworkStatus() {
+  isOffline.value = !navigator.onLine;
+  if (!isOffline.value) {
+    syncOfflineBills();
+  }
+}
 
 onMounted(async () => {
   if (!Token) {
@@ -117,37 +225,52 @@ onMounted(async () => {
     return;
   }
 
-  if (!shopId) {
-    console.warn("⚠️ Warning: shopId is missing from sessionStorage!");
-  }
+  window.addEventListener('online', updateNetworkStatus);
+  window.addEventListener('offline', updateNetworkStatus);
 
   try {
     loading.value = true;
     error.value = null;
 
-    const res = await fetch(`${link}/my-products`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${Token}`,
-        'shop-id': shopId,
-        'client-uid': clientUid,
-        'Content-Type': 'application/json'
-      }
-    });
+    if (navigator.onLine) {
+      const res = await fetch(`${link}/my-products`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${Token}`,
+          'shop-id': shopId,
+          'client-uid': clientUid,
+          'Content-Type': 'application/json'
+        }
+      });
 
-    if (!res.ok) {
-      throw new Error(`API Error: ${res.status}`);
+      if (!res.ok) throw new Error(`API Error: ${res.status}`);
+
+      const result = await res.json();
+      data.value = result.categories;
+      currency.value = result.currency || 'LKR';
+
+      await saveCatalogToCache(result.categories, currency.value);
+      syncOfflineBills();
+    } else {
+      throw new Error('Offline mode active');
     }
-
-    const result = await res.json();
-    data.value = result.categories;
-    currency.value = result.currency;
   } catch (err) {
-    console.error("Fetch failed:", err);
-    error.value = "Could not load products. Check connection.";
+    console.warn("Network fetch failed, loading fallback local IndexedDB cache...", err);
+    const cached = await loadCatalogFromCache();
+    if (cached) {
+      data.value = cached.categories;
+      currency.value = cached.currency || 'LKR';
+    } else {
+      error.value = "Could not load products and no offline cache available.";
+    }
   } finally {
     loading.value = false;
   }
+});
+
+onUnmounted(() => {
+  window.removeEventListener('online', updateNetworkStatus);
+  window.removeEventListener('offline', updateNetworkStatus);
 });
 
 const subtotal = computed(() => {
@@ -218,16 +341,30 @@ const total = computed(() => {
   return stotal - reduce;
 });
 
-async function bill() {
+// --- KOT PRINT HELPER ---
+async function printKOT(items, billNum, orderType) {
+  try {
+    const kotPayload = {
+      arrays: JSON.parse(JSON.stringify(items)),
+      billnum: billNum,
+      orderType: orderType.toUpperCase(),
+      time: new Date().toLocaleTimeString()
+    };
+    await printReceipt(kotPayload);
+  } catch (err) {
+    console.warn('KOT Print note:', err);
+  }
+}
+
+async function bill(statusType = 'paid') {
   if (selectedItems.value.length === 0) {
     alert('Cart is empty');
     return;
   }
-  if (saving.value) {
-    return;
-  }
+  if (saving.value) return;
+
   saving.value = true;
-  button.value = 'Saving...';
+  button.value = statusType === 'pending' ? 'Holding...' : 'Saving...';
 
   const payload = {
     shopId: shopId,
@@ -242,51 +379,82 @@ async function bill() {
       qty: item.qty,
       price: item.price / item.qty
     })),
-    status: 'paid'
+    status: statusType
   };
 
   try {
-    const res = await fetch(`${link}/bills`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${Token}`,
-        'Content-Type': 'application/json',
-        'shop-id': shopId,
-        'client-uid': clientUid
-      },
-      body: JSON.stringify(payload)
-    });
+    let billnumResult = `OFFLINE-${Date.now().toString().slice(-6)}`;
 
-    if (!res.ok) {
-      const errData = await res.json().catch(() => ({}));
-      throw new Error(errData.error || `Save failed: ${res.status}`);
+    if (navigator.onLine) {
+      const res = await fetch(`${link}/bills`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${Token}`,
+          'Content-Type': 'application/json',
+          'shop-id': shopId,
+          'client-uid': clientUid
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Save failed: ${res.status}`);
+      }
+
+      const result = await res.json();
+      billnumResult = result.billnum;
+    } else {
+      await saveBillOffline(payload);
+      console.log("Bill queued offline into IndexedDB.");
     }
 
-    const result = await res.json();
+    // Trigger KOT print for both paid and pending/held orders
+    await printKOT(
+      selectedItems.value, 
+      billnumResult, 
+      statusType === 'paid' ? 'Dine-In / Paid' : 'Held / Pending'
+    );
 
-    router.push({
-      name: 'billprint',
-      state: {
-        arrays: JSON.parse(JSON.stringify(selectedItems.value)),
-        rcvalue: Number(rc.value),
-        scvalue: Number(sc.value),
-        stotal: Number(subtotal.value),
-        total: Number(total.value),
-        billnum: result.billnum,
-        currency: String(currency.value)
+    const printPayload = {
+      arrays: JSON.parse(JSON.stringify(selectedItems.value)),
+      rcvalue: Number(rc.value),
+      scvalue: Number(sc.value),
+      stotal: Number(subtotal.value),
+      total: Number(total.value),
+      billnum: billnumResult,
+      currency: currency.value
+    };
+
+    if (statusType === 'paid') {
+      const printResult = await printReceipt(printPayload);
+      if (!printResult.success) {
+        console.warn('Printer note:', printResult.error);
       }
-    });
+
+      router.push({
+        name: 'billprint',
+        state: printPayload
+      });
+    } else {
+      alert('Bill held successfully as pending and KOT printed!');
+    }
 
     selectedItems.value = [];
     rc.value = 0;
     sc.value = 0;
   } catch (err) {
-    console.error("Bill save failed:", err);
-    alert("Could not save bill: " + err.message);
+    console.error("Bill save failed, saving locally as backup:", err);
+    await saveBillOffline(payload);
+    alert("Network unreachable. Bill saved locally and will sync once online.");
   } finally {
     saving.value = false;
     button.value = 'Save & Pay';
   }
+}
+
+async function holdBill() {
+  await bill('pending');
 }
 </script>
 
@@ -298,12 +466,21 @@ async function bill() {
   flex-direction: row;
   align-items: stretch;
   justify-content: center;
-  background-color: #f0f8ff;
+  background-color: #0f172a;
   box-sizing: border-box;
   overflow: hidden;
 }
 
-/* Left Workspace Panel */
+.offline-badge {
+  font-size: 0.7rem;
+  background-color: #ef4444;
+  color: white;
+  padding: 2px 6px;
+  border-radius: 4px;
+  vertical-align: middle;
+  margin-left: 8px;
+}
+
 .client-work {
   width: 60%;
   padding: 20px;
@@ -329,11 +506,11 @@ async function bill() {
   width: 140px;
   height: 110px;
   padding: 12px;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
+  background: #1e293b;
+  border: 1px solid #334155;
   border-radius: 12px;
   cursor: pointer;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -343,8 +520,8 @@ async function bill() {
 }
 
 .item-box1:hover {
-  border-color: #0077B6;
-  background-color: rgba(0, 119, 182, 0.04);
+  border-color: #38bdf8;
+  background-color: rgba(56, 189, 248, 0.08);
   transform: translateY(-2px);
 }
 
@@ -355,7 +532,7 @@ async function bill() {
 .folder-name {
   font-size: 0.9rem;
   font-weight: 600;
-  color: #1e293b;
+  color: #f8fafc;
   text-align: center;
   word-break: break-word;
 }
@@ -364,10 +541,10 @@ async function bill() {
   width: 140px;
   height: 160px;
   padding: 12px;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
+  background: #1e293b;
+  border: 1px solid #334155;
   border-radius: 12px;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -377,7 +554,7 @@ async function bill() {
 }
 
 .item-box:hover {
-  border-color: #0077B6;
+  border-color: #38bdf8;
 }
 
 .itembox {
@@ -392,14 +569,14 @@ async function bill() {
 .name {
   font-size: 0.9rem;
   font-weight: 600;
-  color: #1e293b;
+  color: #f8fafc;
   text-align: center;
   word-break: break-word;
 }
 
 .stock-label {
   font-size: 0.75rem;
-  color: #64748b;
+  color: #94a3b8;
 }
 
 .qty {
@@ -413,24 +590,24 @@ async function bill() {
   width: 65px;
   padding: 6px;
   text-align: center;
-  border: 1px solid #cbd5e1;
+  border: 1px solid #475569;
   border-radius: 8px;
   font-size: 0.9rem;
-  background: #ffffff;
-  color: #1e293b;
+  background: #0f172a;
+  color: #f8fafc;
   outline: none;
 }
 
 #input1[type="number"]:focus {
-  border-color: #0077B6;
-  box-shadow: 0 0 0 2px rgba(0, 119, 182, 0.15);
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
 }
 
 #b1 {
   width: 100%;
   padding: 6px;
   font-size: 0.85rem;
-  background-color: #0077B6;
+  background-color: #0284c7;
   color: #ffffff;
   border: none;
   border-radius: 8px;
@@ -440,40 +617,39 @@ async function bill() {
 }
 
 #b1:hover {
-  background-color: #026094;
+  background-color: #0369a1;
 }
 
 .back-box {
   cursor: pointer;
-  background-color: #ffffff;
-  border: 1px dashed #cbd5e1;
+  background-color: #1e293b;
+  border: 1px dashed #475569;
   justify-content: center;
   gap: 6px;
 }
 
 .back-box:hover {
-  background-color: #f8fafc;
-  border-color: #0077B6;
+  background-color: #0f172a;
+  border-color: #38bdf8;
 }
 
 #arrow {
   font-size: 1.2rem;
-  color: #0077B6;
+  color: #38bdf8;
 }
 
 .back-text {
   font-weight: 600;
-  color: #334155;
+  color: #f8fafc;
   font-size: 0.9rem;
 }
 
-/* Right Billing Panel */
 .client-bill {
   width: 40%;
-  background-color: #ffffff;
-  color: #1e293b;
-  border-left: 1px solid #e2e8f0;
-  box-shadow: -2px 0 8px rgba(0, 0, 0, 0.02);
+  background-color: #1e293b;
+  color: #f8fafc;
+  border-left: 1px solid #334155;
+  box-shadow: -4px 0 12px rgba(0, 0, 0, 0.2);
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
@@ -481,13 +657,13 @@ async function bill() {
 
 .bill-header {
   padding: 15px 20px;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid #334155;
 }
 
 #h1 {
   margin: 0;
   font-size: 1.2rem;
-  color: #041528;
+  color: #f8fafc;
 }
 
 .bills {
@@ -503,7 +679,7 @@ async function bill() {
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 2px solid #e2e8f0;
+  border-bottom: 2px solid #334155;
   padding-bottom: 8px;
   margin-bottom: 10px;
 }
@@ -511,7 +687,7 @@ async function bill() {
 .heads h3 {
   margin: 0;
   font-size: 0.85rem;
-  color: #64748b;
+  color: #94a3b8;
   font-weight: 600;
 }
 
@@ -522,7 +698,7 @@ async function bill() {
 .empty-cart {
   text-align: center;
   padding: 30px;
-  color: #94a3b8;
+  color: #64748b;
   font-size: 0.9rem;
 }
 
@@ -535,19 +711,19 @@ async function bill() {
   padding: 8px 4px;
   font-size: 0.85rem;
   cursor: pointer;
-  border-bottom: 1px solid #f8fafc;
+  border-bottom: 1px solid #334155;
   transition: background 0.15s;
 }
 
 .bdata:hover {
-  background: rgba(239, 68, 68, 0.06);
+  background: rgba(239, 68, 68, 0.12);
   border-radius: 6px;
 }
 
 .bdata .n {
   width: 50%;
   text-align: left;
-  color: #334155;
+  color: #e2e8f0;
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -557,21 +733,20 @@ async function bill() {
 .bdata .q {
   width: 15%;
   text-align: center;
-  color: #64748b;
+  color: #94a3b8;
 }
 
 .bdata .p {
   width: 35%;
   text-align: right;
-  color: #1e293b;
+  color: #f8fafc;
   font-weight: 600;
 }
 
-/* Footer Calculation Section */
 .last {
   padding: 15px 20px;
-  background: #f8fafc;
-  border-top: 1px solid #e2e8f0;
+  background: #0f172a;
+  border-top: 1px solid #334155;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -585,7 +760,7 @@ async function bill() {
   justify-content: space-between;
   width: 100%;
   font-size: 0.9rem;
-  color: #475569;
+  color: #94a3b8;
   font-weight: 500;
 }
 
@@ -593,47 +768,69 @@ async function bill() {
   width: 60px;
   padding: 4px;
   text-align: center;
-  border: 1px solid #cbd5e1;
+  border: 1px solid #475569;
   border-radius: 6px;
   font-size: 0.85rem;
-  background: #ffffff;
-  color: #1e293b;
+  background: #1e293b;
+  color: #f8fafc;
   outline: none;
 }
 
 .input-calc-row input:focus {
-  border-color: #0077B6;
+  border-color: #38bdf8;
 }
 
 .total-row {
   font-size: 1.1rem;
   font-weight: 700;
-  color: #041528;
-  border-top: 1px dashed #cbd5e1;
+  color: #f8fafc;
+  border-top: 1px dashed #475569;
   padding-top: 8px;
   margin-top: 2px;
 }
 
-.pay-btn {
-  background-color: #0077B6;
+.action-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 5px;
+}
+
+.hold-btn {
+  background-color: #475569;
   color: #ffffff;
   padding: 12px;
-  font-size: 1.05rem;
+  font-size: 0.95rem;
   font-weight: 600;
-  width: 100%;
+  width: 50%;
   border: none;
   border-radius: 8px;
   cursor: pointer;
   transition: background-color 0.2s;
-  margin-top: 5px;
+}
+
+.hold-btn:hover {
+  background-color: #64748b;
+}
+
+.pay-btn {
+  background-color: #0284c7;
+  color: #ffffff;
+  padding: 12px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  width: 50%;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.2s;
 }
 
 .pay-btn:hover {
-  background-color: #026094;
+  background-color: #0369a1;
 }
 
-.pay-btn:disabled {
-  background-color: #94a3b8;
+.pay-btn:disabled, .hold-btn:disabled {
+  background-color: #334155;
   cursor: not-allowed;
 }
 </style>
