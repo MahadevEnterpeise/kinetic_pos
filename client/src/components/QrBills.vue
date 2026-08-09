@@ -314,25 +314,27 @@ async function bill() {
   buttonText.value = 'Saving...';
 
   const payload = {
-    id: selectedOrder.value.id,
-    status: 'paid',
-    clientUid: clientUid,
-    sc: Number(sc.value) || 0,
-    rc: Number(rc.value) || 0,
-    items: selectedItems.value.map(i => ({
-      pid: i.id || i.itemid,
-      id: i.id || i.itemid,
-      name: i.name,
-      qty: i.qty,
-      price: i.qty > 0 ? i.price / i.qty : i.price
-    })),
-    rcvalue: Number(rc.value),
-    scvalue: Number(sc.value),
-    stotal: Number(subtotal.value),
-    total: Number(total.value),
-    currency: String(currency.value),
-    staffName: 'Cashier'
-  };
+  id: selectedOrder.value.id,
+  billNum: selectedOrder.value.id, // <-- Added this to match backend expectation
+  status: 'paid',
+  clientUid: clientUid,
+  sc: Number(sc.value) || 0,
+  rc: Number(rc.value) || 0,
+  items: selectedItems.value.map(i => ({
+    pid: i.id || i.itemid,
+    id: i.id || i.itemid,
+    name: i.name,
+    qty: i.qty,
+    price: i.qty > 0 ? i.price / i.qty : i.price
+  })),
+  rcvalue: Number(rc.value),
+  scvalue: Number(sc.value),
+  stotal: Number(subtotal.value),
+  total: Number(total.value),
+  currency: String(currency.value),
+  staffName: 'Cashier'
+};
+
 
   try {
     let finalBillNum = selectedOrder.value.id;

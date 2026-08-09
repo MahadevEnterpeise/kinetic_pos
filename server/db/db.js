@@ -76,7 +76,7 @@ console.log('✅ subscription_log table verified/created successfully.');
 await db.query(`
 CREATE TABLE IF NOT EXISTS log_data (
 username VARCHAR(20),
-password VARCHAR(255),
+reason VARCHAR(255),
 usertype VARCHAR(50),
 date DATETIME DEFAULT CURRENT_TIMESTAMP,
 status VARCHAR(50)

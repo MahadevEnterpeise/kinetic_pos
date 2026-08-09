@@ -207,11 +207,10 @@ router.post('/login', async (req, res) => {
 
         const sessionData = await dbActions.processLogin(username, password, usertype);
         if (!sessionData) {
-            await dbActions.saveLogData(username, password, usertype, "failed");
+            
             return res.status(401).json({ message: 'error', error: 'Invalid credentials or account suspended (HOLD).' });
         }
 
-        await dbActions.saveLogData(username, password, usertype, "success");
 
         const responsePayload = { message: 'success', uid: sessionData.uid, Token: sessionData.token };
         if (['owner', 'client', 'kineticpos', 'manager'].includes(usertype)) {
@@ -254,6 +253,116 @@ res.status(200).json({ message: 'Registration data recorded successfully', uid: 
 console.error('Registration Route Error:', error.message);
 res.status(500).json({ success: false, error: error.message });
 }
+});
+// ==========================================
+// CUSTOMER PORTAL & LIVE ORDER ROUTES
+// ==========================================
+
+// 1. Get live catalog items and stock for customers browsing a shop
+// GET /billing/products
+router.get('/billing/products', async (req, res) => {
+  try {
+    const shopId = req.headers['shop-id'] || req.query.shopId;
+
+    if (!shopId) {
+      return res.status(400).json({ error: 'Shop ID header is missing' });
+    }
+
+    const menuData = await dbActions.getShopMenuForOrder(shopId);
+
+    // Map `id` explicitly to `pid` so the frontend inventory items carry `pid` directly
+    const formattedItems = (menuData.items || []).map(item => ({
+      ...item,
+      pid: item.pid || item.id
+    }));
+
+    return res.status(200).json(formattedItems);
+
+  } catch (error) {
+    console.error('❌ Error fetching shop products:', error.message);
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+
+
+
+// 2. Place a new customer order (creates pending bill and triggers WebSocket alert to shop tablet)
+router.post('/customer/orders', resolveActorContext, async (req, res) => {
+  try {
+    const shopId = req.headers['shop-id'] || req.body.shopId;
+    const clientUid = req.headers['client-uid'] || req.headers['authorization']?.replace('Bearer ', '') || req.body.clientUid;
+    const { items, sc, rc } = req.body;
+
+    if (!shopId || !clientUid || !items || !Array.isArray(items)) {
+      return res.status(400).json({ error: 'Shop ID, Client ID, and a valid items array are required.' });
+    }
+
+    // Map and normalize each item to ensure pid, name, price, and qty are completely present and valid
+    const sanitizedItems = items.map(item => ({
+      pid: item.pid || item.id,
+      name: item.name || 'Unknown Item',
+      price: Number(item.price || 0),
+      qty: Number(item.qty || 1)
+    }));
+
+    // Double check that no item has a missing pid
+    for (const item of sanitizedItems) {
+      if (!item.pid) {
+        return res.status(400).json({ error: 'One or more items are missing a valid product ID (pid).' });
+      }
+    }
+
+    // Generate unique bill number using your existing dbActions method
+    const billNum = await dbActions.generateUniqueBillNum(shopId);
+
+    // Save items with 'pending' status using the strictly sanitized items array
+    await dbActions.saveBillItems(
+      shopId, 
+      billNum, 
+      sanitizedItems, 
+      'pending', 
+      clientUid, 
+      null, 
+      sc || 0, 
+      rc || 0
+    );
+
+    // Audit log & Real-time WebSocket notifications
+    const { name: actor, role } = req.actorInfo;
+    const details = `Customer placed new order #${billNum}`;
+    await dbActions.saveAuditLog(shopId, actor, role, 'CUSTOMER_ORDER', 'NEW_CUSTOMER_ORDER', details);
+    broadcastAuditAlert(shopId, 'New Customer Order', details, actor, role);
+
+    // Trigger instant alert on shop POS tablet
+    notifyShopTablet(shopId, billNum);
+
+    res.status(201).json({ success: true, message: 'Order placed successfully', billnum: billNum });
+
+  } catch (error) {
+    console.error('❌ Error placing customer order:', error.message);
+    res.status(500).json({ error: error.message || 'Internal Server Error' });
+  }
+});
+
+
+
+// 3. Get customer past & pending orders history with calculated SC and RC totals
+router.get('/customer/orders', async (req, res) => {
+  try {
+    const shopId = req.headers['shop-id'] || req.query.shopId;
+    const clientUid = req.headers['client-uid'] || req.headers['authorization']?.replace('Bearer ', '') || req.query.clientUid;
+
+    if (!shopId || !clientUid) {
+      return res.status(400).json({ error: 'Shop ID and Client ID are required.' });
+    }
+
+    const orders = await dbActions.getCustomerOrdersHistory(shopId, clientUid);
+    res.json(orders);
+  } catch (error) {
+    console.error('❌ Error fetching customer history:', error.message);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
 });
 
 // --- Dashboard & Analytics ---
@@ -427,10 +536,9 @@ router.post('/bills', resolveActorContext, async (req, res) => {
     try {
         const { shopId, items, status, clientUid, sc, rc } = req.body;
         if (!shopId || !items) return res.status(400).json({ error: 'Missing bill data' });
-
         const resolvedClientUid = clientUid || getClientUidFromRequest(req);
         const fakeBillnum = await dbActions.generateUniqueBillNum(shopId);
-
+        console.log('bill sarted')
         await dbActions.saveBillItems(shopId, fakeBillnum, items, status || 'paid', resolvedClientUid, null, sc, rc);
 
         const { name: actor, role } = req.actorInfo;
@@ -474,39 +582,54 @@ router.get('/orders', async (req, res) => {
 });
 
 router.patch('/orders/:id', resolveActorContext, async (req, res) => {
-    try {
-        const id = req.params.id; 
-        const shopId = req.headers['shop-id'];
-        const clientUid = req.headers['client-uid'];
-        const { billNum, status, items, sc, rc } = req.body;
-        if (!shopId) return res.status(400).json({ error: 'Missing shop-id context' });
+  try {
+    const id = req.params.id; 
+    const shopId = req.headers['shop-id'];
+    const clientUid = req.headers['client-uid'];
+    const { billNum, status, items, sc, rc } = req.body;
 
-        const resolvedClientUid = clientUid || getClientUidFromRequest(req);
-        const effectiveStatus = (status === 'cancelled') ? 'cancelled' : status;
+    if (!shopId) return res.status(400).json({ error: 'Missing shop-id context' });
 
-        if (effectiveStatus === 'cancelled') {
-            await dbActions.updateOrderStatusSimple(billNum || id, shopId, effectiveStatus);
-        } else {
-            await dbActions.updateOrderStatus(clientUid, billNum || id, shopId, effectiveStatus, items || [], resolvedClientUid, sc || 0, rc || 0);
-        }
+    console.log('BillNum:', billNum || id);
+    console.log('Status:', status);
 
-        const { name: actor, role } = req.actorInfo;
-        const isAccepted = effectiveStatus === 'paid' || effectiveStatus === 'accepted';
-        const actionTitle = isAccepted ? 'QR Order Accepted' : 'QR Order Rejected';
-        const details = isAccepted ? `Order #${id} accepted.` : `Order #${id} rejected.`;
+    const resolvedClientUid = clientUid || getClientUidFromRequest(req);
+    const effectiveStatus = (status === 'cancelled') ? 'cancelled' : status;
 
-        await dbActions.saveAuditLog(shopId, actor, role, 'QR_ORDER', actionTitle, details);
-        broadcastAuditAlert(shopId, actionTitle, details, actor, role);
-
-        const updatedCatalog = await dbActions.getBillingProducts(shopId);
-        broadcastStockUpdate(shopId, updatedCatalog);
-
-        res.status(200).json({ ok: true, billnum: isAccepted ? `BILL-${Date.now()}` : id });
-    } catch (error) {
-        console.error('❌ Error updating order:', error.message);
-        res.status(500).json({ error: 'Internal Server Error' });
+    if (effectiveStatus === 'cancelled') {
+      await dbActions.updateOrderStatusSimple(billNum || id, shopId, effectiveStatus);
+    } else {
+      // ✅ Corrected order: billNum first, shopId second, effectiveStatus third
+      await dbActions.updateOrderStatus(
+        billNum || id, 
+        shopId, 
+        effectiveStatus, 
+        items || [], 
+        resolvedClientUid, 
+        sc || 0, 
+        rc || 0
+      );
     }
+
+    const { name: actor, role } = req.actorInfo;
+    const isAccepted = effectiveStatus === 'paid' || effectiveStatus === 'accepted';
+    const actionTitle = isAccepted ? 'QR Order Accepted' : 'QR Order Rejected';
+    const details = isAccepted ? `Order #${id} accepted.` : `Order #${id} rejected.`;
+
+    await dbActions.saveAuditLog(shopId, actor, role, 'QR_ORDER', actionTitle, details);
+    broadcastAuditAlert(shopId, actionTitle, details, actor, role);
+
+    const updatedCatalog = await dbActions.getBillingProducts(shopId);
+    broadcastStockUpdate(shopId, updatedCatalog);
+
+    res.status(200).json({ ok: true, billnum: isAccepted ? `BILL-${Date.now()}` : id });
+
+  } catch (error) {
+    console.error('❌ Error updating order:', error.message);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
 });
+
 
 router.post('/deleteBill', resolveActorContext, async (req, res) => {
     try {
