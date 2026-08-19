@@ -294,7 +294,7 @@ saveLogData: async (username, reason, usertype, status) => {
     // DASHBOARDS & ANALYTICS
     // ------------------------------------------
 
-    getOwnerDashboard: async (sid, uid) => {
+    /*getOwnerDashboard: async (sid, uid) => {
         try {
             const shopQuery = `SELECT name, currency FROM users WHERE sid = ? AND uid = ? AND usertype = 'owner' LIMIT 1`;
             const [shopRows] = await db.query(shopQuery, [sid, uid]);
@@ -352,7 +352,67 @@ saveLogData: async (username, reason, usertype, status) => {
         } catch (error) {
             throw new Error(`[DB Error] Failed to generate owner dashboard data: ${error.message}`);
         }
+    },//use when anything goes wrong*/
+    getOwnerDashboard: async (sid, uid) => {
+        try {
+            const shopQuery = `SELECT name, currency FROM users WHERE sid = ? AND uid = ? AND usertype = 'owner' LIMIT 1`;
+            const [shopRows] = await db.query(shopQuery, [sid, uid]);
+
+            if (shopRows.length === 0) {
+                return null;
+            }
+
+            const shopName = shopRows[0].name || 'Unknown Shop';
+            const activeCurrency = shopRows[0].currency || 'LKR';
+
+            const metricsQuery = `
+                SELECT 
+                    IFNULL(SUM((price * qty) + ((price * qty * sc) / 100) - ((price * qty * rc) / 100)), 0) as total_sales,
+                    COUNT(DISTINCT billid) as bill_count
+                FROM shopbill 
+                WHERE sid = ? AND status != 'subscription_paid'
+            `;
+            const [metricsRows] = await db.query(metricsQuery, [sid]);
+            const sales = metricsRows[0].total_sales;
+            const count = metricsRows[0].bill_count;
+
+            const billsQuery = `
+                SELECT 
+                    mobile, 
+                    DATE_FORMAT(time, '%Y/%m/%d,%H:%i:%s') as time, 
+                    SUM((price * qty) + ((price * qty * sc) / 100) - ((price * qty * rc) / 100)) as price, 
+                    billnum 
+                FROM shopbill 
+                WHERE sid = ? AND status != 'subscription_paid'
+                GROUP BY billnum 
+                ORDER BY time DESC 
+                LIMIT 5
+            `;
+            const [bills] = await db.query(billsQuery, [sid]);
+
+            const trendsQuery = `
+                SELECT name
+                FROM shopbill 
+                WHERE sid = ? AND status != 'subscription_paid' AND time >= NOW() - INTERVAL 30 DAY
+                GROUP BY pid 
+                ORDER BY SUM(qty) DESC 
+                LIMIT 3
+            `;
+            const [trends] = await db.query(trendsQuery, [sid]);
+
+            return {
+                bills,
+                trends: trends.length > 0 ? trends : [{ name: 'No items sold yet' }],
+                shop: shopName,
+                sales,
+                count,
+                currency: activeCurrency
+            };
+        } catch (error) {
+            throw new Error(`[DB Error] Failed to generate owner dashboard data: ${error.message}`);
+        }
     },
+
 
     getAccountSummaryForEmail: async (shopId) => {
         try {
@@ -428,6 +488,7 @@ saveLogData: async (username, reason, usertype, status) => {
         }
     },
 
+    
     getLast7DaysSales: async (shopId) => {
     try {
         let queryText = '';
@@ -450,7 +511,7 @@ saveLogData: async (username, reason, usertype, status) => {
                 SELECT 
                     DATE_FORMAT(time, '%a') AS day_name,
                     DATE(time) AS raw_date,
-                    IFNULL(SUM((price * qty) + ((price * qty * sc) / 100) - (((price * qty * sc) / 100) * rc / 100)), 0) AS revenue
+                    IFNULL(SUM((price * qty) + ((price * qty * sc) / 100) - ((price * qty * rc) / 100)), 0) AS revenue
                 FROM shopbill
                 WHERE sid = ? 
                   AND time >= DATE_SUB(CURDATE(), INTERVAL 6 DAY) 
@@ -487,10 +548,11 @@ saveLogData: async (username, reason, usertype, status) => {
 },
 
 
+
     getMonthlySalesTotal: async (shopId) => {
         try {
             const queryText = `
-                SELECT IFNULL(SUM((price * qty) + ((price * qty * sc) / 100) - (((price * qty * sc) / 100) * rc / 100)), 0) AS monthly_sales
+                SELECT IFNULL(SUM((price * qty) + ((price * qty * sc) / 100) - ((price * qty * rc) / 100)), 0) AS monthly_sales
                 FROM shopbill
                 WHERE sid = ? AND time >= DATE_SUB(CURDATE(), INTERVAL 1 MONTH) AND status != 'subscription_paid'
             `;

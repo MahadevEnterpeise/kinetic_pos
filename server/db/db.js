@@ -3,16 +3,17 @@ const crypto = require('crypto');
 const { generateUID, generateSID } = require('../utils/idGenerator');
 
 const pool = mysql.createPool({
-host: '127.0.0.1',
-port: 3306,
-user: 'root',
-password: '',
-database: 'kinetic_pos', 
-waitForConnections: true,
-connectionLimit: 10,
-queueLimit: 0
-});
-
+    host: 'kinetic-pos-db-100-mahadev100enterprise-c2a8.d.aivencloud.com',
+    port: 24973,
+    user: 'avnadmin',
+    password: 'AVNS_aV02BB_-LIsqN-ZmBup',
+    database: 'defaultdb',
+    ssl: { rejectUnauthorized: false }, // 🔒 This tells Node to trust the Aiven cloud certificate chain
+ // 🔒 Don't forget this comma and line for cloud security!
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0
+  });
 const db = pool.promise();
 
 // Password hashing helper for the seed admin

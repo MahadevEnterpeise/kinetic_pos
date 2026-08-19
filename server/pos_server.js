@@ -542,7 +542,7 @@ router.post('/bills', resolveActorContext, async (req, res) => {
         await dbActions.saveBillItems(shopId, fakeBillnum, items, status || 'paid', resolvedClientUid, null, sc, rc);
 
         const { name: actor, role } = req.actorInfo;
-        const details = `${actor} created counter bill #${fakeBillnum}`;
+        const details = `${actor} created counter bill #${fakeBillnum} for serivice charge${sc}% and discount${rc}%`;
 
         await dbActions.saveAuditLog(shopId, actor, role, 'BILLING', 'CREATE_BILL', details);
         broadcastAuditAlert(shopId, 'New Bill Created', details, actor, role);
@@ -1033,33 +1033,57 @@ router.post('/owner/report', async (req, res) => {
             return res.status(404).json({ message: "No sales records found for the selected period." });
         }
 
-        let grossTotal = 0;
-        let totalDeductions = 0;
-        let deductionCount = 0;
+        let totalRawPrice = 0;       // Price * Qty cumulative
+        let totalExtraEarned = 0;    // Total collected from service charges
+        let totalReducedAmount = 0;  // Total value written off from discounts
+        let netTotalSales = 0;       // Absolute money collected after adjustments
 
         const formattedRows = bills.map(b => {
-            const priceNum = parseFloat(b.price) || 0;
-            if (priceNum < 0) {
-                totalDeductions += Math.abs(priceNum);
-                deductionCount++;
-            }
-            grossTotal += priceNum;
-            return `"${b.billnum}","${b.mobile || 'N/A'}","${b.price}","${b.time}"`;
+            const baseUnitPrice = parseFloat(b.price) || 0;
+            const quantity = parseFloat(b.qty) || 0;
+            const itemBaseTotal = baseUnitPrice * quantity;
+            
+            const itemServiceChargePercent = parseFloat(b.sc) || 0;
+            const itemDiscountPercent = parseFloat(b.rc) || 0;
+            
+            const itemScValue = (itemBaseTotal * itemServiceChargePercent) / 100;
+            const itemRcValue = (itemBaseTotal * itemDiscountPercent) / 100;
+            const itemNetPrice = itemBaseTotal + itemScValue - itemRcValue;
+
+            // Increment audit metrics
+            totalRawPrice += itemBaseTotal;
+            totalExtraEarned += itemScValue;
+            totalReducedAmount += itemRcValue;
+            netTotalSales += itemNetPrice;
+
+            // Clean data values for string rows
+            const itemName = (b.name || 'N/A').replace(/"/g, '""');
+            const billId = b.billnum || 'N/A';
+            const mobile = b.mobile || 'N/A';
+            const timestamp = b.time || 'N/A';
+
+            return `"${billId}","${mobile}","${itemName}","${baseUnitPrice.toFixed(2)}","${quantity}","${itemBaseTotal.toFixed(2)}","${itemServiceChargePercent}%","+${itemScValue.toFixed(2)}","${itemDiscountPercent}%","-${itemRcValue.toFixed(2)}","${itemNetPrice.toFixed(2)}","${timestamp}"`;
         });
 
-        const netTotal = grossTotal;
         const sanitizedShopName = rawShopName.replace(/[^a-zA-Z0-9-_]/g, "_");
         const currentDate = new Date().toISOString().split('T')[0];
 
         const csvHeaderLines = [
+            `"=========================================================================="`,
+            `"MANAGEMENT SALES ANALYSIS REPORT"`,
+            `"=========================================================================="`,
             `"Shop Name: ${rawShopName}"`,
             `"Report Period: ${reportData.startDate} to ${reportData.endDate}"`,
             `"Generated Date: ${currentDate}"`,
-            `"Total Sales (Gross): ${grossTotal.toFixed(2)}"`,
-            `"Total Deductions/Returns: -${totalDeductions.toFixed(2)} (${deductionCount} items)"`,
-            `"Net Total Sales: ${netTotal.toFixed(2)}"`,
             ``,
-            `"Bill Number","Mobile","Price","Time"`
+            `"--- FINANCIAL SUMMARY BREAKDOWN ---"`,
+            `"Total Base Product Sales (Gross Value): ${totalRawPrice.toFixed(2)} LKR"`,
+            `"Total Extra Money Generated (Service Charges): +${totalExtraEarned.toFixed(2)} LKR"`,
+            `"Total Reductions Applied (Discounts Given): -${totalReducedAmount.toFixed(2)} LKR"`,
+            `"Final Net Realized Revenue (Actual Cash Flow): ${netTotalSales.toFixed(2)} LKR"`,
+            `"=========================================================================="`,
+            ``,
+            `"Bill Number","Mobile","Item Name","Unit Price","Qty","Base Subtotal","Service Charge %","SC Value Extra","Discount %","Discount Value Saved","Net Paid Price","Time"`
         ].join("\n");
 
         const csvRowsContent = formattedRows.join("\n");
@@ -1079,8 +1103,8 @@ router.post('/owner/report', async (req, res) => {
         const mailOptions = {
             from: 'unknownlion001@gmail.com',
             to: recipientEmail,
-            subject: `Sales Report (${period.toUpperCase()}) - ${rawShopName}`,
-            text: `Please find attached your ${period} sales report CSV file for ${rawShopName}. Net Total: ${netTotal.toFixed(2)}`,
+            subject: `📊 Executive Sales Report (${period.toUpperCase()}) - ${rawShopName}`,
+            text: `Hello,\n\nPlease find attached the premium sales data report CSV file for ${rawShopName}.\n\nFinancial Overview:\n- Base Value: ${totalRawPrice.toFixed(2)} LKR\n- Total Added (SC): +${totalExtraEarned.toFixed(2)} LKR\n- Total Reduced (Discount): -${totalReducedAmount.toFixed(2)} LKR\n- Final Net Income: ${netTotalSales.toFixed(2)} LKR\n\nBest regards,\nKinetic POS Automated System`,
             attachments: [{ filename: fileName, path: filePath }]
         };
 
