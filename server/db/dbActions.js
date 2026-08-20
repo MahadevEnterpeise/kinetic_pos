@@ -355,7 +355,13 @@ saveLogData: async (username, reason, usertype, status) => {
     },//use when anything goes wrong*/
     getOwnerDashboard: async (sid, uid) => {
         try {
-            const shopQuery = `SELECT name, currency FROM users WHERE sid = ? AND uid = ? AND usertype = 'owner' LIMIT 1`;
+            //const shopQuery = `SELECT name, currency FROM users WHERE sid = ? AND uid = ? AND usertype = 'owner' OR 'client' LIMIT 1`;
+            const shopQuery = `
+    SELECT name, currency 
+    FROM users 
+    WHERE sid = ? AND uid = ? AND (usertype = 'owner' OR usertype = 'client') 
+    LIMIT 1
+`;
             const [shopRows] = await db.query(shopQuery, [sid, uid]);
 
             if (shopRows.length === 0) {

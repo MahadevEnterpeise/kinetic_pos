@@ -89,9 +89,10 @@
 </template>
 
 <script setup>
-import { onMounted, ref, computed, onUnmounted } from 'vue';
+import { onMounted, ref, computed, onUnmounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { link, printReceipt } from '../assets/Link';
+import { eventBus } from '../assets/eventBus'; // <--- Connected to shared event bus
 
 const router = useRouter();
 
@@ -110,6 +111,7 @@ const currency = ref('LKR');
 const tempQtys = ref({});
 const saving = ref(false);
 const isOffline = ref(!navigator.onLine);
+let shop = ''; 
 
 const Token = sessionStorage.getItem('userToken');
 const shopId = sessionStorage.getItem('shopId') || sessionStorage.getItem('shopid');
@@ -117,7 +119,7 @@ const clientUid = Token;
 
 // --- INDEXEDDB SETUP & HELPERS ---
 const DB_NAME = 'KineticPOS_Local';
-const DB_VERSION = 1;
+const DB_VERSION = 4;
 
 function openLocalDb() {
   return new Promise((resolve, reject) => {
@@ -130,7 +132,10 @@ function openLocalDb() {
         db.createObjectStore('catalog', { keyPath: 'id' });
       }
       if (!db.objectStoreNames.contains('offline_bills')) {
-        db.createObjectStore('offline_bills', { keyPath: 'tempId', autoIncrement: true });
+        db.createObjectStore('offline_bills', { keyPath: 'tempId' });
+      }
+      if (!db.objectStoreNames.contains('pending_cache')) {
+        db.createObjectStore('pending_cache', { keyPath: 'id' });
       }
     };
   });
@@ -140,8 +145,7 @@ async function saveCatalogToCache(categories, curr) {
   try {
     const db = await openLocalDb();
     const tx = db.transaction(['catalog'], 'readwrite');
-    const store = tx.objectStore('catalog');
-    store.put({ id: 'main_menu', categories, currency: curr });
+    tx.objectStore('catalog').put({ id: 'main_menu', categories, currency: curr });
   } catch (err) {
     console.error('Failed to cache catalog locally:', err);
   }
@@ -162,14 +166,41 @@ async function loadCatalogFromCache() {
   }
 }
 
-async function saveBillOffline(payload) {
+async function saveBillOffline(payload, statusType) {
   const db = await openLocalDb();
+  const tempId = 'OFFLINE_' + Date.now();
+  const numericId = Date.now();
+
+  const billRecord = {
+    ...payload,
+    id: numericId,
+    tempId,
+    date: new Date().toISOString(),
+    customer: 'Walk-in Customer',
+    items: payload.items.map(i => ({
+      itemid: i.pid,
+      name: i.name,
+      qty: i.qty,
+      price: i.price
+    })),
+    servicePct: payload.sc,
+    discount: payload.rc,
+    total: total.value,
+    currency: currency.value,
+    shopname: shop || 'KINETIC POS',
+    orderType: 'DINE-IN'
+  };
+
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(['offline_bills'], 'readwrite');
-    const store = tx.objectStore('offline_bills');
-    const req = store.add({ ...payload, tempId: 'OFFLINE_' + Date.now() });
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+    const tx = db.transaction(['offline_bills', 'pending_cache'], 'readwrite');
+    tx.objectStore('offline_bills').add({ ...billRecord, tempId });
+
+    if (statusType === 'pending') {
+      tx.objectStore('pending_cache').put(billRecord);
+    }
+
+    tx.oncomplete = () => resolve(tempId);
+    tx.onerror = (e) => reject(e.target.error);
   });
 }
 
@@ -178,35 +209,56 @@ async function syncOfflineBills() {
   if (!navigator.onLine) return;
   try {
     const db = await openLocalDb();
-    const tx = db.transaction(['offline_bills'], 'readwrite');
-    const store = tx.objectStore('offline_bills');
-    const req = store.getAll();
+    
+    const offlineBills = await new Promise((resolve, reject) => {
+      const tx = db.transaction(['offline_bills'], 'readonly');
+      const store = tx.objectStore('offline_bills');
+      const req = store.getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    });
 
-    req.onsuccess = async () => {
-      const offlineBills = req.result;
-      if (!offlineBills || offlineBills.length === 0) return;
+    if (!offlineBills || offlineBills.length === 0) return;
 
-      for (const billData of offlineBills) {
-        try {
-          const res = await fetch(`${link}/bills`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${Token}`,
-              'Content-Type': 'application/json',
-              'shop-id': shopId,
-              'client-uid': clientUid
-            },
-            body: JSON.stringify(billData)
-          });
-          if (res.ok) {
-            const delTx = db.transaction(['offline_bills'], 'readwrite');
+    for (const billData of offlineBills) {
+      try {
+        const syncPayload = {
+          ...billData,
+          isOfflineSync: true,
+          originalTempId: billData.tempId
+        };
+
+        const res = await fetch(`${link}/bills`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${Token}`,
+            'Content-Type': 'application/json',
+            'shop-id': shopId,
+            'client-uid': clientUid
+          },
+          body: JSON.stringify(syncPayload)
+        });
+
+        if (res.ok) {
+          await new Promise((resolve, reject) => {
+            const delTx = db.transaction(['offline_bills', 'pending_cache'], 'readwrite');
             delTx.objectStore('offline_bills').delete(billData.tempId);
-          }
-        } catch (e) {
-          console.warn('Sync pending for bill item due to network state.');
+            
+            if (delTx.objectStoreNames.contains('pending_cache')) {
+              delTx.objectStore('pending_cache').delete(billData.id);
+            }
+
+            delTx.oncomplete = () => resolve();
+            delTx.onerror = (e) => reject(e);
+          });
+          console.log(`Synced and cleared local offline bill: ${billData.tempId}`);
+        } else {
+          console.warn(`Server rejected sync with status: ${res.status}`);
         }
+      } catch (e) {
+        console.warn('Sync pending due to network state.');
       }
-    };
+    }
   } catch (err) {
     console.error('Error during background bill sync:', err);
   }
@@ -218,6 +270,12 @@ function updateNetworkStatus() {
     syncOfflineBills();
   }
 }
+
+// Watch event bus to react instantly when sibling components change data states
+watch(() => eventBus.refreshPending, () => {
+  // Add any extra reactions Component A needs to take when Component B modifies/clears bills
+  console.log('Event bus triggered from sibling component.');
+});
 
 onMounted(async () => {
   if (!Token) {
@@ -248,6 +306,9 @@ onMounted(async () => {
       const result = await res.json();
       data.value = result.categories;
       currency.value = result.currency || 'LKR';
+      if (result.shopname) {
+        shop = result.shopname;
+      }
 
       await saveCatalogToCache(result.categories, currency.value);
       syncOfflineBills();
@@ -255,7 +316,6 @@ onMounted(async () => {
       throw new Error('Offline mode active');
     }
   } catch (err) {
-    console.warn("Network fetch failed, loading fallback local IndexedDB cache...", err);
     const cached = await loadCatalogFromCache();
     if (cached) {
       data.value = cached.categories;
@@ -299,8 +359,8 @@ const handleboxclicked = (item, qty) => {
     return;
   }
 
-  const existingItem = selectedItems.value.find(i => i.id === item.itemid);
   const unitPrice = Number(item.price) || 0;
+  const existingItem = selectedItems.value.find(i => i.id === item.itemid);
 
   if (existingItem) {
     existingItem.qty += finalQty;
@@ -309,6 +369,7 @@ const handleboxclicked = (item, qty) => {
     selectedItems.value.push({
       name: item.name,
       qty: finalQty,
+      unitPrice: unitPrice,
       price: unitPrice * finalQty,
       id: item.itemid,
       itemid: item.itemid
@@ -319,17 +380,19 @@ const handleboxclicked = (item, qty) => {
   tempQtys.value[item.itemid] = '';
 };
 
-function remove(rid) {
-  const index = selectedItems.value.findIndex(item => item.id === rid);
+function remove(id) {
+  const index = selectedItems.value.findIndex(item => item.id === id);
   if (index !== -1) {
     const removedItem = selectedItems.value[index];
+
     for (const cat of data.value) {
-      const prod = cat.items.find(i => i.itemid === rid);
+      const prod = cat.items?.find(i => i.itemid === id);
       if (prod) {
         prod.stock += removedItem.qty;
         break;
       }
     }
+
     selectedItems.value.splice(index, 1);
   }
 }
@@ -341,14 +404,15 @@ const total = computed(() => {
   return stotal - reduce;
 });
 
-// --- KOT PRINT HELPER ---
-async function printKOT(items, billNum, orderType) {
+async function printKOT(items, billNum, orderType, shopName) {
   try {
     const kotPayload = {
       arrays: JSON.parse(JSON.stringify(items)),
       billnum: billNum,
       orderType: orderType.toUpperCase(),
-      time: new Date().toLocaleTimeString()
+      date: new Date().toLocaleDateString(),
+      time: new Date().toLocaleTimeString(),
+      shopname: shopName
     };
     await printReceipt(kotPayload);
   } catch (err) {
@@ -373,17 +437,17 @@ async function bill(statusType = 'paid') {
     sc: Number(sc.value) || 0,
     rc: Number(rc.value) || 0,
     items: selectedItems.value.map(item => ({
-      itemid: item.id || item.itemid,
-      id: item.id || item.itemid,
+      pid: item.id || item.itemid,
       name: item.name,
       qty: item.qty,
-      price: item.price / item.qty
+      price: item.unitPrice
     })),
     status: statusType
   };
 
   try {
     let billnumResult = `OFFLINE-${Date.now().toString().slice(-6)}`;
+    let currentShopName = shop || 'My Shop';
 
     if (navigator.onLine) {
       const res = await fetch(`${link}/bills`, {
@@ -404,38 +468,36 @@ async function bill(statusType = 'paid') {
 
       const result = await res.json();
       billnumResult = result.billnum;
+      if (result.shopname) {
+        currentShopName = result.shopname;
+        shop = result.shopname;
+      }
     } else {
-      await saveBillOffline(payload);
-      console.log("Bill queued offline into IndexedDB.");
+      await saveBillOffline(payload, statusType);
     }
 
-    // Trigger KOT print for both paid and pending/held orders
     await printKOT(
       selectedItems.value, 
       billnumResult, 
-      statusType === 'paid' ? 'Dine-In / Paid' : 'Held / Pending'
+      statusType === 'paid' ? 'Dine-In / Paid' : 'Held / Pending',
+      currentShopName
     );
 
-    const printPayload = {
-      arrays: JSON.parse(JSON.stringify(selectedItems.value)),
-      rcvalue: Number(rc.value),
-      scvalue: Number(sc.value),
-      stotal: Number(subtotal.value),
-      total: Number(total.value),
-      billnum: billnumResult,
-      currency: currency.value
-    };
-
     if (statusType === 'paid') {
-      const printResult = await printReceipt(printPayload);
-      if (!printResult.success) {
-        console.warn('Printer note:', printResult.error);
-      }
+      const printPayload = {
+        arrays: JSON.parse(JSON.stringify(selectedItems.value)),
+        rcvalue: Number(rc.value),
+        scvalue: Number(sc.value),
+        stotal: Number(subtotal.value),
+        total: Number(total.value),
+        billnum: billnumResult,
+        currency: currency.value,
+        shopname: currentShopName,
+        date: new Date().toLocaleDateString(),
+        time: new Date().toLocaleTimeString()
+      };
 
-      router.push({
-        name: 'billprint',
-        state: printPayload
-      });
+      await printReceipt(printPayload);
     } else {
       alert('Bill held successfully as pending and KOT printed!');
     }
@@ -443,10 +505,14 @@ async function bill(statusType = 'paid') {
     selectedItems.value = [];
     rc.value = 0;
     sc.value = 0;
+
+    // Notify sibling components (like Component B) via event bus that a bill was held/processed
+    eventBus.triggerRefresh();
   } catch (err) {
     console.error("Bill save failed, saving locally as backup:", err);
-    await saveBillOffline(payload);
+    await saveBillOffline(payload, statusType);
     alert("Network unreachable. Bill saved locally and will sync once online.");
+    eventBus.triggerRefresh();
   } finally {
     saving.value = false;
     button.value = 'Save & Pay';

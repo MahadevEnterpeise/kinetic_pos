@@ -536,6 +536,7 @@ router.post('/bills', resolveActorContext, async (req, res) => {
     try {
         const { shopId, items, status, clientUid, sc, rc } = req.body;
         if (!shopId || !items) return res.status(400).json({ error: 'Missing bill data' });
+        console.log(shopId);
         const resolvedClientUid = clientUid || getClientUidFromRequest(req);
         const fakeBillnum = await dbActions.generateUniqueBillNum(shopId);
         console.log('bill sarted')
@@ -551,8 +552,8 @@ router.post('/bills', resolveActorContext, async (req, res) => {
 
         const updatedCatalog = await dbActions.getBillingProducts(shopId);
         broadcastStockUpdate(shopId, updatedCatalog);
-
-        res.status(201).json({ billnum: fakeBillnum, id: fakeBillnum });
+        const shop=await dbActions.getOwnerDashboard(shopId,clientUid);
+        res.status(201).json({ billnum: fakeBillnum, id: fakeBillnum,shopname:shop.shop });
     } catch (error) {
         console.error('❌ Error saving bill:', error.message);
         res.status(500).json({ error: 'Internal Server Error' });
