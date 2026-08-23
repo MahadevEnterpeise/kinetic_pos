@@ -1059,11 +1059,11 @@ throw new Error(`[DB Error] Failed to save bill and update stock: ${error.messag
     let username=null;
     const [usernamerows]=await db.query(`SELECT username from users where uid=? and sid=? LIMIT 1`,[clientUid,shopId]);
     if (usernamerows.length>0){
-        username =usernamerows[0].username
+        username =usernamerows[0].username;
     }
     // 1. Run the direct update and check affected rows
     const [updateResult] = await db.query(
-      `UPDATE shopbill SET status = ?, sc = ?, rc = ? client=? WHERE billnum = ? AND sid = ?`,
+      `UPDATE shopbill SET status = ?, sc = ?, rc = ?, client=? WHERE billnum = ? AND sid = ?`,
       [status, Number(sc) || 0, Number(rc) || 0,username, billNum, shopId]
     );
 
