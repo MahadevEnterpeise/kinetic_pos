@@ -751,7 +751,7 @@ saveLogData: async (username, reason, usertype, status) => {
 }
 ,
       // Fetch categorized order history for a specific customer with accurate SC/RC calculations
-  getCustomerOrdersHistory: async (shopId, clientUid) => {
+  /*getCustomerOrdersHistory: async (shopId, clientUid) => {
     try {
       const query = `
         SELECT 
@@ -825,9 +825,101 @@ saveLogData: async (username, reason, usertype, status) => {
     } catch (error) {
       throw new Error(`[DB Error] Failed to fetch customer order history: ${error.message}`);
     }
-  },
+  },*/
+  getCustomerOrdersHistory: async (shopId, clientUid) => {
+    try {
+        // 1. Find the mobile number for this client/user within this shop
+        const [userRows] = await db.query(
+            `SELECT mobile FROM users WHERE uid = ? AND sid = ? LIMIT 1`,
+            [clientUid, shopId]
+        );
 
+        if (!userRows || userRows.length === 0 || !userRows[0].mobile) {
+            return [];
+        }
 
+        const customerMobile = userRows[0].mobile;
+
+        // 2. Fetch bills matching this mobile number
+        const query = `
+            SELECT 
+                b.billnum, 
+                b.sid, 
+                b.mobile, 
+                b.pid, 
+                b.name, 
+                b.qty, 
+                b.price, 
+                b.sc, 
+                b.rc, 
+                b.status, 
+                b.client, 
+                b.time,
+                u.name AS actorName
+            FROM shopbill b
+            LEFT JOIN users u ON b.client = u.uid AND b.sid = u.sid
+            WHERE b.sid = ? AND b.mobile = ?
+            ORDER BY b.time DESC
+        `;
+        
+        const [rows] = await db.query(query, [shopId, customerMobile]);
+        const groupedMap = {};
+
+        rows.forEach(row => {
+            const orderId = row.billnum;
+
+            if (!groupedMap[orderId]) {
+                groupedMap[orderId] = {
+                    id: orderId,
+                    billnum: row.billnum,
+                    sc: Number(row.sc) || 0, // Service Charge Percentage
+                    rc: Number(row.rc) || 0, // Reduction/Discount Percentage
+                    subtotal: 0,
+                    chargeAmount: 0,
+                    reduceAmount: 0,
+                    total: 0,
+                    date: row.time,
+                    status: row.status,
+                    mobile: row.mobile,
+                    staffName: row.actorName || 'Customer Portal',
+                    currency: 'LKR',
+                    items: []
+                };
+            }
+
+            const itemTotalPrice = Number(row.price) * Number(row.qty);
+            groupedMap[orderId].subtotal += itemTotalPrice;
+
+            if (row.name || row.pid) {
+                groupedMap[orderId].items.push({
+                    itemid: row.pid,
+                    name: row.name,
+                    qty: Number(row.qty) || 1,
+                    price: Number(row.price) || 0
+                });
+            }
+        });
+
+        // 3. Calculate absolute breakdown values for service charge and reduction
+        const resultOrders = Object.values(groupedMap).map(order => {
+            // Service charge added value
+            order.chargeAmount = (order.subtotal * order.sc) / 100;
+            let intermediateTotal = order.subtotal + order.chargeAmount;
+            
+            // Reduction/discount reduced value
+            order.reduceAmount = (intermediateTotal * order.rc) / 100;
+            
+            // Final calculated total ensuring it doesn't drop below zero
+            order.total = Math.max(0, intermediateTotal - order.reduceAmount);
+            
+            return order;
+        });
+
+        return resultOrders;
+    } catch (error) {
+        throw new Error(`[DB Error] Failed to fetch customer order history: ${error.message}`);
+    }
+},
     saveBillItems: async (shopId, billNum, items, status = 'paid', clientUid = null, customerMobile = null, sc = 0, rc = 0) => {
 try {
 let resolvedMobile = customerMobile;
@@ -1018,7 +1110,7 @@ throw new Error(`[DB Error] Failed to save bill and update stock: ${error.messag
         }
     },
 
-    updateOrderStatusSimple: async (billNum, shopId, status) => {
+    updateOrderStatusSimple: async (billNum, shopId, status,clientUid) => {
         try {
             const [orderItems] = await db.query(
                 `SELECT pid, qty FROM shopbill WHERE (billnum = ? OR billid = ?) AND sid = ?`,
@@ -1026,8 +1118,8 @@ throw new Error(`[DB Error] Failed to save bill and update stock: ${error.messag
             );
 
             await db.query(
-                `UPDATE shopbill SET status = ? WHERE (billnum = ? OR billid = ?) AND sid = ?`,
-                [status, billNum, billNum, shopId]
+                `UPDATE shopbill SET status = ?, client=? WHERE (billnum = ? OR billid = ?) AND sid = ?`,
+                [status,clientUid, billNum, billNum, shopId]
             );
 
             if (status === 'cancelled' || status === 'rejected') {
@@ -1047,28 +1139,22 @@ throw new Error(`[DB Error] Failed to save bill and update stock: ${error.messag
         }
     },
 
-    updateOrderStatus: async (billNum, shopId, status, items, clientUid = null, sc = 0, rc = 0) => {
+    updateOrderStatus: async (billNum, shopId, status, items, clientUid, sc = 0, rc = 0) => {
   try {
-    console.log("🔍 [DEBUG] Starting updateOrderStatus with:", { billNum, shopId, status });
-
+    console.log("🔍 [DEBUG] Starting updateOrderStatus with:", { billNum, shopId, status,clientUid });
+    console.log(clientUid);
     let resolvedMobile = null;
     const [shopRows] = await db.query(`SELECT mobile FROM users WHERE sid = ? LIMIT 1`, [shopId]);
     if (shopRows.length > 0) {
       resolvedMobile = shopRows[0].mobile || null;
     }
-    let username=null;
-    const [usernamerows]=await db.query(`SELECT username from users where uid=? and sid=? LIMIT 1`,[clientUid,shopId]);
-    if (usernamerows.length>0){
-        username =usernamerows[0].username;
-    }
     // 1. Run the direct update and check affected rows
     const [updateResult] = await db.query(
       `UPDATE shopbill SET status = ?, sc = ?, rc = ?, client=? WHERE billnum = ? AND sid = ?`,
-      [status, Number(sc) || 0, Number(rc) || 0,username, billNum, shopId]
+      [status, Number(sc) || 0, Number(rc) || 0,clientUid, billNum, shopId]
     );
 
     console.log("🔍 [DEBUG] SQL UPDATE affected rows:", updateResult.affectedRows);
-
     if (updateResult.affectedRows === 0) {
       console.warn(`⚠️ [WARNING] No rows matched billnum='${billNum}' and sid='${shopId}' in shopbill table! Check if the billnum or shopid exact values match your DB.`);
     }

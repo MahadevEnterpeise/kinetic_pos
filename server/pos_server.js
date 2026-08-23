@@ -598,7 +598,7 @@ router.patch('/orders/:id', resolveActorContext, async (req, res) => {
     const effectiveStatus = (status === 'cancelled') ? 'cancelled' : status;
 
     if (effectiveStatus === 'cancelled') {
-      await dbActions.updateOrderStatusSimple(billNum || id, shopId, effectiveStatus);
+      await dbActions.updateOrderStatusSimple(billNum || id, shopId, effectiveStatus,clientUid);
     } else {
       // ✅ Corrected order: billNum first, shopId second, effectiveStatus third
       await dbActions.updateOrderStatus(

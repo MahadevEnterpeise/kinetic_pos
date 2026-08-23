@@ -133,7 +133,7 @@
               <span class="order-amount">{{ Number(order.total).toFixed(2) }} {{ order.currency || currency }}</span>
             </div>
 
-            <!-- Expanded Order Line Items (View Only - Delete functionality removed) -->
+            <!-- Expanded Order Line Items & Financial Breakdown -->
             <div class="order-details-drawer" v-if="expandedId === order.id" @click.stop>
               <div class="drawer-header">
                 <span>Item</span>
@@ -144,6 +144,29 @@
                 <span class="item-title-col">{{ item.name }}</span>
                 <span class="item-qty-col">{{ item.qty }}</span>
                 <span class="item-price-col">{{ (item.price * item.qty).toFixed(2) }}</span>
+              </div>
+
+              <!-- Financial Breakdown Panel -->
+              <div class="bill-breakdown-box">
+                <div class="breakdown-row">
+                  <span>Items Subtotal:</span>
+                  <span>{{ order.subtotal.toFixed(2) }}</span>
+                </div>
+                <div v-if="order.sc > 0" class="breakdown-row charge">
+                  <span>Service Charge ({{ order.sc }}%):</span>
+                  <span>+ {{ order.chargeAmount.toFixed(2) }}</span>
+                </div>
+                <div v-if="order.rc > 0" class="breakdown-row discount">
+                  <span>Discount / Reduction ({{ order.rc }}%):</span>
+                  <span>- {{ order.reduceAmount.toFixed(2) }}</span>
+                </div>
+                <div class="breakdown-row final-total">
+                  <span>Final Total:</span>
+                  <span>{{ order.total.toFixed(2) }} {{ order.currency || currency }}</span>
+                </div>
+                <div class="handled-by-info">
+                  <span>Handler: {{ order.staffName }}</span>
+                </div>
               </div>
             </div>
           </article>
@@ -178,7 +201,7 @@
               <span class="order-amount">{{ Number(order.total).toFixed(2) }} {{ order.currency || currency }}</span>
             </div>
 
-            <!-- Expanded Order Line Items -->
+            <!-- Expanded Order Line Items & Financial Breakdown -->
             <div class="order-details-drawer" v-if="expandedId === order.id" @click.stop>
               <div class="drawer-header">
                 <span>Item</span>
@@ -189,6 +212,29 @@
                 <span class="item-title-col">{{ item.name }}</span>
                 <span class="item-qty-col">{{ item.qty }}</span>
                 <span class="item-price-col">{{ (item.price * item.qty).toFixed(2) }}</span>
+              </div>
+
+              <!-- Financial Breakdown Panel -->
+              <div class="bill-breakdown-box">
+                <div class="breakdown-row">
+                  <span>Items Subtotal:</span>
+                  <span>{{ order.subtotal.toFixed(2) }}</span>
+                </div>
+                <div v-if="order.sc > 0" class="breakdown-row charge">
+                  <span>Service Charge ({{ order.sc }}%):</span>
+                  <span>+ {{ order.chargeAmount.toFixed(2) }}</span>
+                </div>
+                <div v-if="order.rc > 0" class="breakdown-row discount">
+                  <span>Discount / Reduction ({{ order.rc }}%):</span>
+                  <span>- {{ order.reduceAmount.toFixed(2) }}</span>
+                </div>
+                <div class="breakdown-row final-total">
+                  <span>Final Total:</span>
+                  <span>{{ order.total.toFixed(2) }} {{ order.currency || currency }}</span>
+                </div>
+                <div class="handled-by-info">
+                  <span>Handler: {{ order.staffName }}</span>
+                </div>
               </div>
             </div>
           </article>
@@ -742,7 +788,7 @@ onMounted(() => {
   border-top: 1px dashed #e2e8f0;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 6px;
 }
 
 .drawer-header {
@@ -766,6 +812,50 @@ onMounted(() => {
 .item-title-col { flex: 1; }
 .item-qty-col { width: 25px; text-align: center; font-weight: 600; }
 .item-price-col { width: 50px; text-align: right; font-weight: 600; }
+
+/* Financial breakdown styles */
+.bill-breakdown-box {
+  margin-top: 6px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.breakdown-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  color: #475569;
+}
+
+.breakdown-row.charge {
+  color: #0369a1;
+}
+
+.breakdown-row.discount {
+  color: #15803d;
+}
+
+.breakdown-row.final-total {
+  font-weight: 700;
+  color: #0f172a;
+  border-top: 1px solid #cbd5e1;
+  padding-top: 4px;
+  margin-top: 2px;
+  font-size: 0.78rem;
+}
+
+.handled-by-info {
+  font-size: 0.65rem;
+  color: #64748b;
+  font-style: italic;
+  margin-top: 2px;
+  text-align: right;
+}
 
 .loading-state, .error-box, .empty-box {
   padding: 30px 15px;

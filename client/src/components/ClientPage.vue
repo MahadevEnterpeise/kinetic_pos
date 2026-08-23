@@ -119,7 +119,7 @@ const clientUid = Token;
 
 // --- INDEXEDDB SETUP & HELPERS ---
 const DB_NAME = 'KineticPOS_Local';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 function openLocalDb() {
   return new Promise((resolve, reject) => {
