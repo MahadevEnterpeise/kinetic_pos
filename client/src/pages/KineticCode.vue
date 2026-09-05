@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 
 // You can define your state or variables here when you add functionality later
-const companyName = ref('Kinetic Code')
+const companyName = ref('Kinetic Code HQ')
 const currentYear = ref(2026)
 </script>
 
@@ -42,7 +42,7 @@ const currentYear = ref(2026)
 
       <!-- Short Description -->
       <p class="hero-description">
-        We engineer high-performance, future-focused software solutions. Our premier enterprise cloud platform is ready for deployment.
+        Where static traditions break-engineering high-velocity systemes for the next era of businesss.
       </p>
 
       <!-- POS Product Card -->

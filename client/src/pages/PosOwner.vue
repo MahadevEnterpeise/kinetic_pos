@@ -15,6 +15,7 @@
         <a href="#staff" class="tool" @click="mobileMenuOpen = false">🏢 Management</a>
         <a href="#customer" class="tool" @click="mobileMenuOpen = false">👥 Customer</a>
         <a href="#update" class="tool" @click="mobileMenuOpen = false">📦 Update</a>
+        <a href="#past" class="tool" @click="mobileMenuOpen = false">🧾 Past Bill</a>
         <a href="#qr" class="tool" @click="mobileMenuOpen = false">🔲 QR Generator</a>
         <a href="#mybill" class="tool" @click="mobileMenuOpen = false">🧾 My Bill</a>
       </div>
@@ -91,6 +92,10 @@
       <!-- Feature Sections -->
       <div id="update" class="section-block">
         <InventoryManager/>
+      </div>
+      <!-- Feature Sections -->
+      <div id="past" class="section-block">
+        <PastOrders/>
       </div>
 
       <div id="customer" class="section-block">
@@ -188,6 +193,7 @@ import RegisterPos from '../components/RegisterPos.vue';
 import InventoryManager from '../components/InventoryManager.vue';
 import MyBill from '../components/MyBill.vue';
 import OwnerActions from '../components/OwnerActions.vue';
+import PastOrders from '../components/PastOrders.vue';
 
 const router = useRouter();
 const Token = ref(sessionStorage.getItem('userToken'));
@@ -787,6 +793,11 @@ header {
 /* Sections */
 .section-block {
   width: 100%;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
   max-width: 1200px;
 }
 
