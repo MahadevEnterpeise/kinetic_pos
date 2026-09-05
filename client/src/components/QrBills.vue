@@ -4,7 +4,7 @@
 <!-- LEFT PANE: PENDING LIST -->
 <div class="pending-pane">
 <div class="head">
-Pending Orders <span v-if="isOffline" class="offline-badge">🔌 Offline</span>
+Pending Orders <span v-if="isOffline" class="offline-badge">🔌 Offline</span><button @click="fetchPendingOrders()">Fetch</button>
 </div>
 
 <div class="pending-list">
@@ -103,7 +103,7 @@ title="Click to remove item"
 import { onMounted, ref, computed, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { link, printReceipt } from '../assets/Link';
-import { eventBus } from '../assets/eventBus'; // <--- Added event bus import
+import { eventBus } from '../assets/eventBus';
 
 const router = useRouter();
 const Token = sessionStorage.getItem('userToken');
@@ -124,7 +124,7 @@ const isOffline = ref(!navigator.onLine);
 
 // --- INDEXEDDB SETUP & HELPERS ---
 const DB_NAME = 'KineticPOS_Local';
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 
 function openLocalDb() {
   return new Promise((resolve, reject) => {
@@ -483,7 +483,7 @@ async function fetchPendingOrders() {
     });
     if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
     const serverData = await res.json();
-
+    
     const validServerOrders = serverData
       .filter(order => !processedOrderIds.has(order.id))
       .map(order => ({
@@ -513,6 +513,13 @@ onMounted(async () => {
 
   window.addEventListener('online', updateNetworkStatus);
   window.addEventListener('offline', updateNetworkStatus);
+
+  // Added event bus listener to automatically refresh pending orders in real-time
+  if (eventBus && typeof eventBus.on === 'function') {
+    eventBus.on('refresh', async () => {
+      await fetchPendingOrders();
+    });
+  }
 
   loading.value = true;
   
