@@ -9,7 +9,7 @@
           <span class="folder-name">{{ n.name }}</span>
         </div>
         <div v-if="data.length === 0" class="empty-state">
-          <p>No product categories available</p>
+          <p id="white">No product categories available</p>
         </div>
       </div>
 
@@ -719,6 +719,7 @@ async function holdBill() {
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
+  overflow-y:scroll;
 }
 
 .bill-header {
@@ -899,4 +900,6 @@ async function holdBill() {
   background-color: #334155;
   cursor: not-allowed;
 }
+#white{
+color:white;}
 </style>

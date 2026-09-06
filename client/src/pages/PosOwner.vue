@@ -45,7 +45,7 @@
       <!-- Quick Metrics Cards -->
       <div class="quickdata">
         <div class="box">
-          <p>Today Sales</p>
+          <p>Total Sales</p>
           <h3 class="metric-primary">{{ Number(data.sales || 0).toFixed(2) }} {{ currency }}</h3>
         </div>
         <div class="box">
