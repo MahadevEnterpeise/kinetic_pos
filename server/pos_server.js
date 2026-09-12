@@ -1169,7 +1169,6 @@ cron.schedule('0 0 1 * *', async () => {
 // 7. SERVER BOOTSTRAP
 // ============================================================================
 
-server.listen(PORT, () => {
-    console.log(`🚀 Kinetic Code POS Enterprise Server running with WebSockets on http://localhost:${PORT}`);
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Kinetic Code POS Enterprise Server running with WebSockets on port ${PORT}`);
 });
-
