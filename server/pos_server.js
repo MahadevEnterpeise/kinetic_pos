@@ -39,7 +39,12 @@ const API_PREFIX = '/api';
 // Core Express Middleware Setup
 app.use(cors());
 app.use(express.json());
+// Serve Vue frontend static files
+app.use(express.static(path.join(__dirname, 'dist')));
 
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+});
 // HTTP Server & WebSocket Subsystem Integration
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
