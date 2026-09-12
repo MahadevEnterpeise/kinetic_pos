@@ -690,7 +690,7 @@ router.post('/user-me', async (req, res) => {
         const { uid, shopId } = req.body;
         if (!uid || !shopId) return res.status(400).json({ error: 'Missing parameters' });
 
-        const qrUrl = `https://special-winner-97r65x5gx7rx27pv7-5173.app.github.dev/auth?next=${encodeURIComponent(`/order/${shopId}`)}`;
+        const qrUrl = `https://kineticpos-production.up.railway.app//auth?next=${encodeURIComponent(`/order/${shopId}`)}`;
         res.status(200).json({ url: qrUrl });
     } catch (error) {
         console.error('❌ Error generating QR landing path:', error.message);
