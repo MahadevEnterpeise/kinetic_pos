@@ -39,6 +39,8 @@ const API_PREFIX = '/api';
 // Core Express Middleware Setup
 app.use(cors());
 app.use(express.json());
+// 👉 YOU MUST CONNECT THE ROUTER TO APP HERE:
+app.use('/api', router);
 // Serve Vue frontend static files
 app.use(express.static(path.join(__dirname, 'dist')));
 
