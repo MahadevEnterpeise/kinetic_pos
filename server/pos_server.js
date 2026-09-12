@@ -39,8 +39,7 @@ const API_PREFIX = '/api';
 // Core Express Middleware Setup
 app.use(cors());
 app.use(express.json());
-// 👉 YOU MUST CONNECT THE ROUTER TO APP HERE:
-app.use('/api', router);
+
 // Serve Vue frontend static files
 app.use(express.static(path.join(__dirname, 'dist')));
 
@@ -198,7 +197,8 @@ async function resolveActorContext(req, res, next) {
 // ============================================================================
 
 const router = express.Router();
-
+// 👉 YOU MUST CONNECT THE ROUTER TO APP HERE:
+app.use('/api', router);
 // --- Diagnostic & Testing Routes ---
 router.post('/data', (req, res) => {
     res.status(200).json({ message: 'Data received successfully!', yourData: req.body });
