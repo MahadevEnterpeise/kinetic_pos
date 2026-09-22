@@ -621,8 +621,8 @@ router.patch('/orders/:id', resolveActorContext, async (req, res) => {
 
     const { name: actor, role } = req.actorInfo;
     const isAccepted = effectiveStatus === 'paid' || effectiveStatus === 'accepted';
-    const actionTitle = isAccepted ? 'QR Order Accepted' : 'QR Order Rejected';
-    const details = isAccepted ? `Order #${id} accepted.` : `Order #${id} rejected.`;
+    const actionTitle = isAccepted ? 'Hold Order Accepted' : 'Hold Order Rejected';
+    const details = isAccepted ? `Order #${id} accepted.At servicecharge ${sc} and discount ${rc}` : `Order #${id} rejected.At servicecharge ${sc} and discount ${rc}`;
 
     await dbActions.saveAuditLog(shopId, actor, role, 'QR_ORDER', actionTitle, details);
     broadcastAuditAlert(shopId, actionTitle, details, actor, role);
