@@ -11,11 +11,11 @@ const pool = mysql.createPool({
     ssl: { rejectUnauthorized: false },
     waitForConnections: true,
     connectionLimit: 10,
-    queueLimit: 0,
-    // 👇 ADD THIS LINE TO BYPASS THE STRICT GROUP BY ERROR 👇
-    sqlMode: 'TRADITIONAL' 
+    queueLimit: 0
 });
-
+// 👇 Dynamically disable ONLY_FULL_GROUP_BY for every new connection in the pool
+pool.on('connection', (connection) => {
+    connection.query("SET SESSION sql_mode = ''");});
 const db = pool.promise();
 
 // Password hashing helper for the seed admin
