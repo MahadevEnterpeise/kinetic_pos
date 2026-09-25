@@ -34,7 +34,6 @@ console.log('🔄 Checking database tables...');
 // 1. Create Users Table
 await db.query(`
 CREATE TABLE IF NOT EXISTS users (
-id INT AUTO_INCREMENT PRIMARY KEY,
 uid VARCHAR(50) PRIMARY KEY,
 sid VARCHAR(50),
 username VARCHAR(50) UNIQUE,
@@ -90,7 +89,6 @@ console.log('✅ log_data table verified');
 // 4. Create Shop Bill Table
 await db.query(`
 CREATE TABLE IF NOT EXISTS shopbill (
-id INT AUTO_INCREMENT PRIMARY KEY,
 billid VARCHAR(50),
 sid VARCHAR(50),
 mobile VARCHAR(20),
