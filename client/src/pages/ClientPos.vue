@@ -110,6 +110,7 @@ onMounted(async () => {
 
     socket.onopen = () => {
       console.log('🟢 Connected to POS live notification socket');
+      Alert('connected to websocket');
     };
 
     socket.onmessage = (event) => {
