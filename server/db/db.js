@@ -142,7 +142,7 @@ console.log('✅ feedback table verified/created successfully.');
 
 // 7. Create audit Table
 await db.query(`
-CREATE TABLE IF NOT EXISTS audit_log (
+CREATE TABLE IF NOT EXISTS hop_audit_logs (
 id INT AUTO_INCREMENT PRIMARY KEY,
 shop_id VARCHAR(50) NOT NULL,
 actor_name VARCHAR(100) NOT NULL,
