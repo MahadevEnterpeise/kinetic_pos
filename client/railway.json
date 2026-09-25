@@ -1,4 +1,3 @@
-cat << 'EOF' > client/railway.json
 {
   "$schema": "https://railway.app/railway.schema.json",
   "build": {
@@ -8,4 +7,3 @@ cat << 'EOF' > client/railway.json
     "staticPublishPath": "dist"
   }
 }
-EOF
