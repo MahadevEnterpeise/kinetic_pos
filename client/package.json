@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "serve -s dist -l $PORT"
   },
   "dependencies": {
     "apexcharts": "^5.10.6",
@@ -14,6 +15,7 @@
     "node-cron": "^4.6.0",
     "pinia": "^3.0.4",
     "qrcode.vue": "^3.9.0",
+    "serve": "^14.2.6",
     "vue": "^3.5.32",
     "vue-router": "^5.0.6",
     "vue3-apexcharts": "^1.11.1"
