@@ -8,12 +8,14 @@ const pool = mysql.createPool({
     user: 'avnadmin',
     password: 'AVNS_Ug02NIoa781tBRDl_3U',
     database: 'defaultdb',
-    ssl: { rejectUnauthorized: false }, // 🔒 This tells Node to trust the Aiven cloud certificate chain
- // 🔒 Don't forget this comma and line for cloud security!
+    ssl: { rejectUnauthorized: false },
     waitForConnections: true,
     connectionLimit: 10,
-    queueLimit: 0
-  });
+    queueLimit: 0,
+    // 👇 ADD THIS LINE TO BYPASS THE STRICT GROUP BY ERROR 👇
+    sqlMode: 'TRADITIONAL' 
+});
+
 const db = pool.promise();
 
 // Password hashing helper for the seed admin
