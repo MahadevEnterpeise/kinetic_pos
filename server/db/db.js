@@ -3,10 +3,10 @@ const crypto = require('crypto');
 const { generateUID, generateSID } = require('../utils/idGenerator');
 
 const pool = mysql.createPool({
-    host: 'kinetic-pos-db-100-mahadev100enterprise-c2a8.d.aivencloud.com',
+    host: 'mysql-23f3db9b-mahadev100enterprise-c2a8.a.aivencloud.com',
     port: 24973,
     user: 'avnadmin',
-    password: 'AVNS_aV02BB_-LIsqN-ZmBup',
+    password: 'AVNS_Ug02NIoa781tBRDl_3U',
     database: 'defaultdb',
     ssl: { rejectUnauthorized: false }, // 🔒 This tells Node to trust the Aiven cloud certificate chain
  // 🔒 Don't forget this comma and line for cloud security!
