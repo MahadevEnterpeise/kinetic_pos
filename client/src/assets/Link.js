@@ -1,7 +1,8 @@
 //export const link='http://localhost:3000/api'
 //now 
-export const link ='https://kineticpos-production.up.railway.app/api'
-//export const link = `https://${window.location.hostname.replace('-5173', '-3000')}/api`;
+//export const link ='https://kineticpos-production.up.railway.app/api'
+// 
+export const link = `https://${window.location.hostname.replace('-5173', '-3000')}/api`;
 
 
 // src/utils/printerService.js
