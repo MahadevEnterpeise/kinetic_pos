@@ -169,27 +169,18 @@ const notificationsPermitted = ref(true);
 
 let socket = null;
 
-// Initialize notification sound instance and unlock state
-
-const notificationSound = new Audio('/notification.wav');
-
+// Audio unlock state flag
 let audioUnlocked = false;
 
-
+// Independent fresh sound player pointing to the public folder /notification.wav
 const playOrderSound = () => {
-
-try {
-
-notificationSound.currentTime = 0;
-
-notificationSound.play().catch(err => console.log('Audio playback prevented:', err));
-
-} catch (e) {
-
-console.error('Sound trigger error:', e);
-
-}
-
+  try {
+    const sound = new Audio('/notification.wav');
+    sound.currentTime = 0;
+    sound.play().catch(err => console.log('Audio playback prevented:', err));
+  } catch (e) {
+    console.error('Sound trigger error:', e);
+  }
 };
 
 
@@ -385,11 +376,13 @@ function selectNew(a){
 
 // Unlock audio context cleanly on the first bottom menu click
 if (!audioUnlocked) {
-  notificationSound.volume = 0.01;
-  notificationSound.play().then(() => {
-    audioUnlocked = true;
-    notificationSound.volume = 1.0;
-  }).catch(() => {});
+  try {
+    const dummySound = new Audio('/notification.wav');
+    dummySound.volume = 0.01;
+    dummySound.play().then(() => {
+      audioUnlocked = true;
+    }).catch(() => {});
+  } catch(e) {}
 }
 
 if(number.value === a){
