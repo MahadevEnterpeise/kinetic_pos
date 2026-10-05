@@ -246,8 +246,10 @@ return; // Silently refresh orders without popping up an annoying alert
 }
 
 
-// PLAY SOUND IMMEDIATELY BEFORE ANY DIALOG POPUPS
-playOrderSound();
+// PLAY SOUND INDEPENDENTLY USING TIMEOUT SO ALERT DOESN'T BLOCK IT
+setTimeout(() => {
+  playOrderSound();
+}, 10);
 
 
 if (notificationsPermitted.value && 'Notification' in window && Notification.permission === 'granted') {
