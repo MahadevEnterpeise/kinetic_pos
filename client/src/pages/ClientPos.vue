@@ -170,15 +170,16 @@ const notificationsPermitted = ref(true);
 let socket = null;
 
 // Initialize notification sound instance
+
 const notificationSound = new Audio('/sounds/notification.mp3');
 
 const playOrderSound = () => {
-  try {
-    notificationSound.currentTime = 0;
-    notificationSound.play().catch(err => console.log('Audio playback prevented:', err));
-  } catch (e) {
-    console.error('Sound trigger error:', e);
-  }
+try {
+notificationSound.currentTime = 0;
+notificationSound.play().catch(err => console.log('Audio playback prevented:', err));
+} catch (e) {
+console.error('Sound trigger error:', e);
+}
 };
 
 
@@ -245,6 +246,7 @@ return; // Silently refresh orders without popping up an annoying alert
 
 
 // Play sound alert when a new order drops
+
 playOrderSound();
 
 
@@ -836,6 +838,16 @@ display: flex;
 
 align-items: center;
 
-justify-content: space
+justify-content: space-between;
+
+padding: 10px;
+
+background: #f9f9f9;
+
+border-radius: 8px;
+
+border: 1px solid #eee;
+
 }
+
 </style>
