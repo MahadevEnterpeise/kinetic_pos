@@ -246,8 +246,7 @@ return; // Silently refresh orders without popping up an annoying alert
 }
 
 
-// Play sound alert when a new order drops
-
+// PLAY SOUND IMMEDIATELY BEFORE ANY DIALOG POPUPS
 playOrderSound();
 
 
