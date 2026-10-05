@@ -169,17 +169,27 @@ const notificationsPermitted = ref(true);
 
 let socket = null;
 
-// Initialize notification sound instance
+// Initialize notification sound instance and unlock state
 
-const notificationSound = new Audio('/sounds/notification.mp3');
+const notificationSound = new Audio('/notification.wav');
+
+let audioUnlocked = false;
+
 
 const playOrderSound = () => {
+
 try {
+
 notificationSound.currentTime = 0;
+
 notificationSound.play().catch(err => console.log('Audio playback prevented:', err));
+
 } catch (e) {
+
 console.error('Sound trigger error:', e);
+
 }
+
 };
 
 
@@ -372,6 +382,15 @@ router.push('/auth');
 
 
 function selectNew(a){
+
+// Unlock audio context cleanly on the first bottom menu click
+if (!audioUnlocked) {
+  notificationSound.volume = 0.01;
+  notificationSound.play().then(() => {
+    audioUnlocked = true;
+    notificationSound.volume = 1.0;
+  }).catch(() => {});
+}
 
 if(number.value === a){
 
