@@ -108,8 +108,8 @@ try {
 
 // Unlock browser audio context context on explicit user login click
 try {
-const unlockAudio = new Audio('../sounds/notification.mp3');
-unlockAudio.volume = 0.01;
+const unlockAudio = new Audio('/notification.wav');
+unlockAudio.volume = 0.1;
 await unlockAudio.play();
 sessionStorage.setItem('audioEnabled', 'true');
 } catch (audioErr) {
