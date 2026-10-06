@@ -129,6 +129,36 @@
 
 </div>
 
+
+<!-- NON-BLOCKING CUSTOM ORDER ALERT MODAL -->
+
+<div class="modal-overlay" v-if="orderAlertVisible">
+
+<div class="modal-content" style="text-align: center;">
+
+<div class="modal-header">
+
+<h3>New Order Received! 📩</h3>
+
+<button @click="orderAlertVisible = false" class="close-btn">&times;</button>
+
+</div>
+
+<div class="modal-body" style="align-items: center; text-align: center; gap: 12px; padding: 15px 0;">
+
+<p style="font-size: 1.2rem; font-weight: 600; color: #1e293b; margin: 0;">New Order #{{ orderAlertBillNum }} has arrived.</p>
+
+<p style="color: #64748b; font-size: 0.9rem; margin: 0;">Bill number: {{ orderAlertBillNum }}</p>
+
+<button @click="orderAlertVisible = false" style="background-color: #0077B6; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; width: 100%; margin-top: 10px;">OK</button>
+
+</div>
+
+</div>
+
+</div>
+
+
 </div>
 
 </template>
@@ -166,6 +196,11 @@ const shopId = sessionStorage.getItem('shopId');
 const settingsOpen = ref(false);
 
 const notificationsPermitted = ref(true);
+
+
+// Custom non-blocking order alert state
+const orderAlertVisible = ref(false);
+const orderAlertBillNum = ref('');
 
 let socket = null;
 
@@ -246,10 +281,8 @@ return; // Silently refresh orders without popping up an annoying alert
 }
 
 
-// PLAY SOUND INDEPENDENTLY USING TIMEOUT SO ALERT DOESN'T BLOCK IT
-setTimeout(() => {
-  playOrderSound();
-}, 10);
+// PLAY SOUND IMMEDIATELY WITHOUT BLOCKING
+playOrderSound();
 
 
 if (notificationsPermitted.value && 'Notification' in window && Notification.permission === 'granted') {
@@ -262,7 +295,9 @@ body: `New order #${data.billnum} has arrived.`
 
 } else {
 
-alert(`New Order Received! Bill #${data.billnum}`);
+// Trigger custom non-blocking popup modal with bill number
+orderAlertBillNum.value = data.billnum;
+orderAlertVisible.value = true;
 
 }
 
