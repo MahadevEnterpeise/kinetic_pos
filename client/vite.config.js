@@ -7,6 +7,10 @@ export default defineConfig({
     vue(),
     VitePWA({
       registerType: 'autoUpdate',
+      devOptions: {
+        enabled: true, // <--- MUST HAVE THIS so it works on npm run dev
+        type: 'module'
+      },
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
       manifest: {
         name: 'My Vue POS',
@@ -19,14 +23,14 @@ export default defineConfig({
         start_url: '/',
         icons: [
           {
-            src: '/logo3.jpg',
+            src: '/logo3.png', // <--- MUST be a PNG or SVG, not jpg
             sizes: '192x192',
-            type: 'image/jpg'
+            type: 'image/png'  // <--- MUST be image/png
           },
           {
-            src: '/logo3.jpg',
+            src: '/logo3.png', // <--- MUST be a PNG or SVG, not jpg
             sizes: '512x512',
-            type: 'image/jpg',
+            type: 'image/png', // <--- MUST be image/png
             purpose: 'any maskable'
           }
         ]
@@ -34,11 +38,11 @@ export default defineConfig({
     })
   ],
   server: {
-    host: true, // This exposes the project on your local network
+    host: true,
     port: 5173,
     strictPort: true,
     hmr: {
-      clientPort: 5173 // Forces the HMR to use the correct port
+      clientPort: 5173
     }
   }
 })
