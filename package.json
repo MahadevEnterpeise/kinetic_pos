@@ -1,17 +1,16 @@
 {
   "name": "kinetic-pos-server",
   "version": "1.0.0",
-  "description": "SmartPOS Pro Backend",
-  "main": "pos_server.js",
+  "main": "server/pos_server.js",
   "scripts": {
-    "start": "node pos_server.js",
-    "build": "cd ../client && npm install && npm run build && cp -r dist ../server/dist"
+    "start": "node server/pos_server.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.19.2",
     "mysql2": "^3.24.3",
     "node-cron": "^3.0.3",
-    "nodemailer": "^6.9.13"
+    "nodemailer": "^6.9.13",
+    "ws": "*"
   }
 }
