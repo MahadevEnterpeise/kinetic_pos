@@ -29,6 +29,36 @@ resolve(`${salt}:${derivedKey.toString('hex')}`);
 });
 };
 
+async function test() {
+  try {
+    console.log("Checking database tables...");
+    
+    // Add order_type column safely
+    try {
+      await db.query(`ALTER TABLE shopbill ADD COLUMN orderType VARCHAR(50) DEFAULT 'takeaway'`);
+      console.log("Added orderType column.");
+    } catch (e) {
+      console.log("orderType column already exists or skipped.");
+    }
+
+    // Add payment_type column safely
+    try {
+      await db.query(`ALTER TABLE shopbill ADD COLUMN paymentType VARCHAR(50) DEFAULT 'cash'`);
+      console.log("Added paymentType column.");
+    } catch (e) {
+      console.log("paymentType column already exists or skipped.");
+    }
+
+    console.log("SUCCESS: Database schema verified successfully!");
+    process.exit(0);
+  } catch (err) {
+    console.error("DB Error:", err.message);
+    process.exit(1);
+  }
+}
+
+//test();
+
 async function initDatabase() {
 try {
 console.log('🔄 Checking database tables...');
@@ -104,6 +134,8 @@ rc decimal(10,2),
 price DECIMAL(10,2),
 status VARCHAR(20),
 client VARCHAR(255),
+orderType VARCHAR(50),
+paymentType VARCHAR(50),
 PRIMARY KEY (billid, pid)
 );
 `);

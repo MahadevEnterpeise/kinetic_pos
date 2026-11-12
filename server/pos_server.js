@@ -541,16 +541,16 @@ router.get('/my-products', async (req, res) => {
 // --- Billing, Counter Sales & QR Orders ---
 router.post('/bills', resolveActorContext, async (req, res) => {
     try {
-        const { shopId, items, status, clientUid, sc, rc } = req.body;
+        const { shopId, items, status, clientUid, sc, rc, orderType, paymentType } = req.body;
         if (!shopId || !items) return res.status(400).json({ error: 'Missing bill data' });
         console.log(shopId);
         const resolvedClientUid = clientUid || getClientUidFromRequest(req);
         const fakeBillnum = await dbActions.generateUniqueBillNum(shopId);
         console.log('bill sarted')
-        await dbActions.saveBillItems(shopId, fakeBillnum, items, status || 'paid', resolvedClientUid, null, sc, rc);
+        await dbActions.saveBillItems(shopId, fakeBillnum, items, status || 'paid', resolvedClientUid, null, sc, rc,orderType,paymentType);
 
         const { name: actor, role } = req.actorInfo;
-        const details = `${actor} created counter bill #${fakeBillnum} for serivice charge${sc}% and discount${rc}%`;
+        const details = `${actor} created counter bill #${fakeBillnum} for serivice charge${sc}% and discount${rc}% at ${orderType} and ${paymentType}`;
 
         await dbActions.saveAuditLog(shopId, actor, role, 'BILLING', 'CREATE_BILL', details);
         broadcastAuditAlert(shopId, 'New Bill Created', details, actor, role);

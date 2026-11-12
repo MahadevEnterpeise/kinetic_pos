@@ -602,38 +602,58 @@ saveLogData: async (username, reason, usertype, status) => {
     },
 
     getBillingProducts: async (shopId) => {
-        try {
-            const [shopUser] = await db.query(`SELECT currency FROM users WHERE sid = ? LIMIT 1`, [shopId]);
-            const currency = shopUser.length > 0 ? shopUser[0].currency : 'LKR';
+  try {
+    // 1. Select address, mobile, and name along with currency
+    const [shopUser] = await db.query(
+      `SELECT currency, address, mobile, name FROM users WHERE sid = ? AND usrtype = ? LIMIT 1`, 
+      [shopId, 'owner']
+    );
 
-            const [products] = await db.query(`SELECT pid, name, category, price, stock FROM products WHERE sid = ? AND pid NOT LIKE 'CAT-%'`, [shopId]);
+    const currency = shopUser.length > 0 ? (shopUser[0].currency || 'LKR') : 'LKR';
+    const s_address = shopUser.length > 0 ? (shopUser[0].address || 'kinetic_address') : 'kinetic_address';
+    const s_mobile = shopUser.length > 0 ? (shopUser[0].mobile || '0000') : '0000';
+    const shop_name = shopUser.length > 0 ? (shopUser[0].name || 'kinetic_shop') : 'kinetic_shop';
 
-            const categoryMap = {};
-            products.forEach(p => {
-                const catName = p.category || 'General';
-                if (!categoryMap[catName]) {
-                    categoryMap[catName] = {
-                        id: catName.toLowerCase().replace(/\s+/g, '_'),
-                        name: catName,
-                        items: []
-                    };
-                }
-                categoryMap[catName].items.push({
-                    itemid: p.pid,
-                    name: p.name,
-                    price: p.price,
-                    stock: p.stock
-                });
-            });
+    const [products] = await db.query(
+      `SELECT pid, name, category, price, stock FROM products WHERE sid = ? AND pid NOT LIKE 'CAT-%'`, 
+      [shopId]
+    );
 
-            return {
-                currency: currency,
-                categories: Object.values(categoryMap)
-            };
-        } catch (error) {
-            throw new Error(`[DB Error] Failed to fetch billing products: ${error.message}`);
-        }
-    },
+    const categoryMap = {};
+    products.forEach(p => {
+      const catName = p.category || 'General';
+      if (!categoryMap[catName]) {
+        categoryMap[catName] = {
+          id: catName.toLowerCase().replace(/\s+/g, '_'),
+          name: catName,
+          items: []
+        };
+      }
+      categoryMap[catName].items.push({
+        itemid: p.pid,
+        name: p.name,
+        price: p.price,
+        stock: p.stock
+      });
+    });
+
+    // 2. Return all property variants so the frontend catches them without fail
+    return {
+      currency: currency,
+      shopname: shop_name,
+      shop_name: shop_name,
+      s_mobile: s_mobile,
+      mobile: s_mobile,
+      s_address: s_address,
+      address: s_address,
+      categories: Object.values(categoryMap)
+    };
+
+  } catch (error) {
+    throw new Error(`[DB Error] Failed to fetch billing products: ${error.message}`);
+  }
+},
+
 
     generateUniqueBillNum: async (shopId) => {
         let isUnique = false;
@@ -920,7 +940,7 @@ saveLogData: async (username, reason, usertype, status) => {
         throw new Error(`[DB Error] Failed to fetch customer order history: ${error.message}`);
     }
 },
-    saveBillItems: async (shopId, billNum, items, status = 'paid', clientUid = null, customerMobile = null, sc = 0, rc = 0) => {
+    saveBillItems: async (shopId, billNum, items, status = 'paid', clientUid = null, customerMobile = null, sc = 0, rc = 0,orderType,paymentType) => {
 try {
 let resolvedMobile = customerMobile;
 
@@ -932,8 +952,8 @@ resolvedMobile = userRows[0].mobile || null;
 }
 
 const queryText = `
-INSERT INTO shopbill (billid, billnum, sid, mobile, pid, name, qty, price, sc, rc, status, client, time)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+INSERT INTO shopbill (billid, billnum, sid, mobile, pid, name, qty, price, sc, rc, status, client, time,orderType,paymentType)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(),?,?)
 `;
 
 for (const item of items) {
@@ -959,7 +979,9 @@ price,
 Number(sc) || 0,
 Number(rc) || 0,
 status, 
-clientUid || null
+clientUid || null,
+orderType,
+paymentType
 ]);
 
 await db.query(
