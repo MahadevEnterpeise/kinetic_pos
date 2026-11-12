@@ -70,6 +70,17 @@ title="Click to remove item"
 </div>
 
 <div class="last">
+<!-- Showable Order Type & Payment Type -->
+<div class="calc-row read-only-row" v-if="selectedOrder">
+<span>Order Type</span>
+<span class="badge-text">{{ (selectedOrder.orderType || 'Takeaway').toUpperCase() }}</span>
+</div>
+
+<div class="calc-row read-only-row" v-if="selectedOrder">
+<span>Payment Type</span>
+<span class="badge-text">{{ (selectedOrder.paymentType || 'Cash').toUpperCase() }}</span>
+</div>
+
 <span id="subtotal">
 <p>Sub Total</p>
 <p>{{ Number(subtotal || 0).toFixed(2) }} {{ currency }}</p>
@@ -99,6 +110,7 @@ title="Click to remove item"
 
 </div>
 </template>
+
 <script setup>
 import { onMounted, ref, computed, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
@@ -122,604 +134,650 @@ const billshow = ref(false);
 const saving = ref(false);
 const isOffline = ref(!navigator.onLine);
 
+const shopProfile = ref({
+  shop_name: 'KINETIC POS',
+  s_mobile: '',
+  s_address: ''
+});
+
 // --- INDEXEDDB SETUP & HELPERS ---
 const DB_NAME = 'KineticPOS_Local';
-const DB_VERSION = 6;
+const DB_VERSION = 7; // Incremented version to support shop_profile store
 
 function openLocalDb() {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-    request.onerror = (e) => reject('IndexedDB error: ' + e.target.error);
-    request.onsuccess = (e) => resolve(e.target.result);
-    request.onupgradeneeded = (e) => {
-      const db = e.target.result;
-      if (!db.objectStoreNames.contains('catalog')) {
-        db.createObjectStore('catalog', { keyPath: 'id' });
-      }
-      if (!db.objectStoreNames.contains('offline_bills')) {
-        db.createObjectStore('offline_bills', { keyPath: 'tempId' });
-      }
-      if (!db.objectStoreNames.contains('pending_cache')) {
-        db.createObjectStore('pending_cache', { keyPath: 'id' });
-      }
-      if (!db.objectStoreNames.contains('offline_actions')) {
-        db.createObjectStore('offline_actions', { keyPath: 'tempId', autoIncrement: true });
-      }
-    };
-  });
+return new Promise((resolve, reject) => {
+const request = indexedDB.open(DB_NAME, DB_VERSION);
+request.onerror = (e) => reject('IndexedDB error: ' + e.target.error);
+request.onsuccess = (e) => resolve(e.target.result);
+request.onupgradeneeded = (e) => {
+const db = e.target.result;
+if (!db.objectStoreNames.contains('catalog')) {
+db.createObjectStore('catalog', { keyPath: 'id' });
+}
+if (!db.objectStoreNames.contains('offline_bills')) {
+db.createObjectStore('offline_bills', { keyPath: 'tempId' });
+}
+if (!db.objectStoreNames.contains('pending_cache')) {
+db.createObjectStore('pending_cache', { keyPath: 'id' });
+}
+if (!db.objectStoreNames.contains('offline_actions')) {
+db.createObjectStore('offline_actions', { keyPath: 'tempId', autoIncrement: true });
+}
+if (!db.objectStoreNames.contains('shop_profile')) {
+db.createObjectStore('shop_profile', { keyPath: 'id' });
+}
+};
+});
+}
+
+async function loadShopProfileFromCache() {
+try {
+const db = await openLocalDb();
+return new Promise((resolve) => {
+const tx = db.transaction(['shop_profile'], 'readonly');
+const store = tx.objectStore('shop_profile');
+const req = store.get('current_profile');
+req.onsuccess = () => resolve(req.result || null);
+req.onerror = () => resolve(null);
+});
+} catch (err) {
+return null;
+}
 }
 
 async function cachePendingOrders(orders) {
-  try {
-    const db = await openLocalDb();
-    const tx = db.transaction(['pending_cache'], 'readwrite');
-    const store = tx.objectStore('pending_cache');
-    store.clear();
-    orders.forEach(order => store.put(order));
-  } catch (err) {
-    console.error('Failed to cache pending orders locally:', err);
-  }
+try {
+const db = await openLocalDb();
+const tx = db.transaction(['pending_cache'], 'readwrite');
+const store = tx.objectStore('pending_cache');
+store.clear();
+orders.forEach(order => store.put(order));
+} catch (err) {
+console.error('Failed to cache pending orders locally:', err);
+}
 }
 
 async function loadPendingFromCache() {
-  try {
-    const db = await openLocalDb();
-    return new Promise((resolve) => {
-      const tx = db.transaction(['pending_cache'], 'readonly');
-      const store = tx.objectStore('pending_cache');
-      const req = store.getAll();
-      req.onsuccess = () => resolve(req.result || []);
-      req.onerror = () => resolve([]);
-    });
-  } catch (err) {
-    return [];
-  }
+try {
+const db = await openLocalDb();
+return new Promise((resolve) => {
+const tx = db.transaction(['pending_cache'], 'readonly');
+const store = tx.objectStore('pending_cache');
+const req = store.getAll();
+req.onsuccess = () => resolve(req.result || []);
+req.onerror = () => resolve([]);
+});
+} catch (err) {
+return [];
+}
 }
 
 // --- SYNC ENGINE ---
 async function syncOfflineActions() {
-  if (!navigator.onLine) return;
-  
-  loading.value = true;
-  saving.value = true;
+if (!navigator.onLine) return;
+loading.value = true;
+saving.value = true;
 
-  try {
-    const db = await openLocalDb();
-    const actionsPromise = new Promise((resolve, reject) => {
-      const tx = db.transaction(['offline_actions'], 'readonly');
-      const store = tx.objectStore('offline_actions');
-      const req = store.getAll();
-      req.onsuccess = () => resolve(req.result || []);
-      req.onerror = () => reject(req.error);
-    });
+try {
+const db = await openLocalDb();
+const actionsPromise = new Promise((resolve, reject) => {
+const tx = db.transaction(['offline_actions'], 'readonly');
+const store = tx.objectStore('offline_actions');
+const req = store.getAll();
+req.onsuccess = () => resolve(req.result || []);
+req.onerror = () => reject(req.error);
+});
 
-    const offlineActions = await actionsPromise;
+const offlineActions = await actionsPromise;
 
-    if (offlineActions.length > 0) {
-      for (const action of offlineActions) {
-        try {
-          const isTempId = String(action.orderId).startsWith('OFFLINE_') || String(action.orderId).length > 20;
-          
-          const endpoint = (action.payload.status === 'paid' && isTempId) 
-            ? `${link}/orders` 
-            : `${link}/orders/${action.orderId}`;
-          const method = (action.payload.status === 'paid' && isTempId) ? 'POST' : 'PATCH';
+if (offlineActions.length > 0) {
+for (const action of offlineActions) {
+try {
+const isTempId = String(action.orderId).startsWith('OFFLINE_') || String(action.orderId).length > 20;
+const endpoint = (action.payload.status === 'paid' && isTempId) 
+? `${link}/orders` 
+: `${link}/orders/${action.orderId}`;
+const method = (action.payload.status === 'paid' && isTempId) ? 'POST' : 'PATCH';
 
-          const response = await fetch(endpoint, {
-            method: method,
-            headers: { 
-              'Authorization': `Bearer ${Token}`, 
-              'Content-Type': 'application/json', 
-              'shop-id': shopId,
-              'client-uid': clientUid
-            },
-            body: JSON.stringify(action.payload)
-          });
+const response = await fetch(endpoint, {
+method: method,
+headers: { 
+'Authorization': `Bearer ${Token}`, 
+'Content-Type': 'application/json', 
+'shop-id': shopId,
+'client-uid': clientUid
+},
+body: JSON.stringify(action.payload)
+});
 
-          if (response.ok || response.status === 404 || response.status === 400) {
-            const cleanupTx = db.transaction(['offline_actions', 'pending_cache'], 'readwrite');
-            cleanupTx.objectStore('offline_actions').delete(action.tempId);
-            cleanupTx.objectStore('pending_cache').delete(action.orderId);
-          }
-        } catch (e) {
-          console.warn('Sync attempt failed for action, will retry later.');
-        }
-      }
-    }
+if (response.ok || response.status === 404 || response.status === 400) {
+const cleanupTx = db.transaction(['offline_actions', 'pending_cache'], 'readwrite');
+cleanupTx.objectStore('offline_actions').delete(action.tempId);
+cleanupTx.objectStore('pending_cache').delete(action.orderId);
+}
+} catch (e) {
+console.warn('Sync attempt failed for action, will retry later.');
+}
+}
+}
 
-    await fetchPendingOrders();
-  } catch (err) {
-    console.error('Error during background action sync:', err);
-    await fetchPendingOrders();
-  } finally {
-    loading.value = false;
-    saving.value = false;
-  }
+await fetchPendingOrders();
+} catch (err) {
+console.error('Error during background action sync:', err);
+await fetchPendingOrders();
+} finally {
+loading.value = false;
+saving.value = false;
+}
 }
 
 async function updateNetworkStatus() {
-  isOffline.value = !navigator.onLine;
-  if (!isOffline.value) {
-    await syncOfflineActions();
-  }
+isOffline.value = !navigator.onLine;
+if (!isOffline.value) {
+await syncOfflineActions();
+}
 }
 
 const subtotal = computed(() => {
-  return selectedItems.value.reduce((sum, item) => sum + (item.price * item.qty), 0);
+return selectedItems.value.reduce((sum, item) => sum + (item.price * item.qty), 0);
 });
 
 const total = computed(() => {
-  const chargeAmount = (subtotal.value * sc.value) / 100;
-  let stotal = subtotal.value + chargeAmount;
-  const reduce = (stotal * rc.value) / 100;
-  return Math.max(0, stotal - reduce);
+const chargeAmount = (subtotal.value * sc.value) / 100;
+let stotal = subtotal.value + chargeAmount;
+const reduce = (stotal * rc.value) / 100;
+return Math.max(0, stotal - reduce);
 });
 
 const formatDate = (iso) => {
-  if (!iso) return '';
-  return new Date(iso).toLocaleDateString('en-CA');
+if (!iso) return '';
+return new Date(iso).toLocaleDateString('en-CA');
 };
 
 function remove(rid) {
-  selectedItems.value = selectedItems.value.filter(item => item.id !== rid);
+selectedItems.value = selectedItems.value.filter(item => item.id !== rid);
 }
 
 function loadPending(o) {
-  selectedOrder.value = o;
-  selectedItems.value = (o.items || []).map(it => {
-    const qty = Number(it.qty) || 1;
-    let rawPrice = Number(it.price) || 0;
+selectedOrder.value = o;
+selectedItems.value = (o.items || []).map(it => {
+const qty = Number(it.qty) || 1;
+let rawPrice = Number(it.price) || 0;
 
-    const unitPrice = (qty > 1 && rawPrice > 1000) ? (rawPrice / qty) : rawPrice;
+const unitPrice = (qty > 1 && rawPrice > 1000) ? (rawPrice / qty) : rawPrice;
 
-    return {
-      id: it.itemid || it.id,
-      name: it.name,
-      qty: qty,
-      price: unitPrice 
-    };
-  });
-  sc.value = o.servicePct || o.sc || 0;
-  rc.value = o.discount || o.rc || 0;
+return {
+id: it.itemid || it.id,
+name: it.name,
+qty: qty,
+price: unitPrice 
+};
+});
+sc.value = o.servicePct || o.sc || 0;
+rc.value = o.discount || o.rc || 0;
 }
 
 // --- REJECT ACTION ---
 async function reject() {
-  if (!selectedOrder.value) return;
-  saving.value = true;
-  const targetId = selectedOrder.value.id;
-  
-  const payload = { 
-    status: 'cancelled',
-    billNum: targetId,
-    sc: Number(sc.value) || 0,
-    rc: Number(rc.value) || 0
-  };
+if (!selectedOrder.value) return;
+saving.value = true;
+const targetId = selectedOrder.value.id;
+const payload = { 
+status: 'cancelled',
+billNum: targetId,
+sc: Number(sc.value) || 0,
+rc: Number(rc.value) || 0
+};
 
-  try {
-    const db = await openLocalDb();
-    
-    const tx = db.transaction(['pending_cache', 'offline_actions'], 'readwrite');
-    tx.objectStore('pending_cache').delete(targetId);
-    tx.objectStore('offline_actions').add({ orderId: targetId, payload, tempId: 'ACTION_' + Date.now() });
+try {
+const db = await openLocalDb();
+const tx = db.transaction(['pending_cache', 'offline_actions'], 'readwrite');
+tx.objectStore('pending_cache').delete(targetId);
+tx.objectStore('offline_actions').add({ orderId: targetId, payload, tempId: 'ACTION_' + Date.now() });
 
-    const isTempId = String(targetId).startsWith('OFFLINE_') || String(targetId).length > 20;
+const isTempId = String(targetId).startsWith('OFFLINE_') || String(targetId).length > 20;
 
-    if (navigator.onLine && !isTempId) {
-      const response = await fetch(`${link}/orders/${targetId}`, {
-        method: 'PATCH',
-        headers: { 
-          'Authorization': `Bearer ${Token}`, 
-          'Content-Type': 'application/json', 
-          'shop-id': shopId,
-          'client-uid': clientUid
-        },
-        body: JSON.stringify(payload)
-      });
-      if (response.ok) {
-        const cleanTx = db.transaction(['offline_actions'], 'readwrite');
-        const store = cleanTx.objectStore('offline_actions');
-        store.openCursor().onsuccess = (e) => {
-          const cursor = e.target.result;
-          if (cursor) {
-            if (cursor.value.orderId === targetId) cursor.delete();
-            cursor.continue();
-          }
-        };
-      }
-    }
+if (navigator.onLine && !isTempId) {
+const response = await fetch(`${link}/orders/${targetId}`, {
+method: 'PATCH',
+headers: { 
+'Authorization': `Bearer ${Token}`, 
+'Content-Type': 'application/json', 
+'shop-id': shopId,
+'client-uid': clientUid
+},
+body: JSON.stringify(payload)
+});
+if (response.ok) {
+const cleanTx = db.transaction(['offline_actions'], 'readwrite');
+const store = cleanTx.objectStore('offline_actions');
+store.openCursor().onsuccess = (e) => {
+const cursor = e.target.result;
+if (cursor) {
+if (cursor.value.orderId === targetId) cursor.delete();
+cursor.continue();
+}
+};
+}
+}
 
-    pendingOrders.value = pendingOrders.value.filter(item => item.id !== targetId);
-    selectedOrder.value = null;
-    selectedItems.value = [];
-    
-    // Notify sibling components via event bus
-    eventBus.triggerRefresh();
-  } catch (err) {
-    console.error("Reject failed:", err);
-    alert("Could not reject order.");
-  } finally {
-    saving.value = false;
-  }
+pendingOrders.value = pendingOrders.value.filter(item => item.id !== targetId);
+selectedOrder.value = null;
+selectedItems.value = [];
+eventBus.triggerRefresh();
+} catch (err) {
+console.error("Reject failed:", err);
+alert("Could not reject order.");
+} finally {
+saving.value = false;
+}
 }
 
 // --- ACCEPT / SAVE & PAY ACTION ---
 async function bill() {
-  if (!selectedOrder.value) {
-    alert('Please select a pending order first');
-    return;
-  }
-  if (selectedItems.value.length === 0) {
-    alert('Cart is empty');
-    return;
-  }
-  if (saving.value) return;
+if (!selectedOrder.value) {
+alert('Please select a pending order first');
+return;
+}
+if (selectedItems.value.length === 0) {
+alert('Cart is empty');
+return;
+}
+if (saving.value) return;
 
-  saving.value = true;
-  buttonText.value = 'Saving...';
-  const targetId = selectedOrder.value.id;
+saving.value = true;
+buttonText.value = 'Saving...';
+const targetId = selectedOrder.value.id;
 
-  const payload = {
-    id: targetId,
-    billNum: targetId,
-    status: 'paid',
-    clientUid: clientUid,
-    sc: Number(sc.value) || 0,
-    rc: Number(rc.value) || 0,
-    items: selectedItems.value.map(i => ({
-      pid: i.id || i.itemid,
-      id: i.id || i.itemid,
-      name: i.name,
-      qty: i.qty,
-      price: Number(i.price) * Number(i.qty)
-    })),
-    rcvalue: Number(rc.value),
-    scvalue: Number(sc.value),
-    stotal: Number(subtotal.value),
-    total: Number(total.value),
-    currency: String(currency.value),
-    staffName: 'Cashier'
-  };
+const payload = {
+id: targetId,
+billNum: targetId,
+status: 'paid',
+clientUid: clientUid,
+sc: Number(sc.value) || 0,
+rc: Number(rc.value) || 0,
+orderType: selectedOrder.value.orderType || 'takeaway',
+paymentType: selectedOrder.value.paymentType || 'cash',
+items: selectedItems.value.map(i => ({
+pid: i.id || i.itemid,
+id: i.id || i.itemid,
+name: i.name,
+qty: i.qty,
+price: Number(i.price) * Number(i.qty)
+})),
+rcvalue: Number(rc.value),
+scvalue: Number(sc.value),
+stotal: Number(subtotal.value),
+total: Number(total.value),
+currency: String(currency.value),
+staffName: 'Cashier'
+};
 
-  try {
-    let finalBillNum = targetId;
-    const db = await openLocalDb();
-    
-    const tx = db.transaction(['pending_cache', 'offline_actions'], 'readwrite');
-    tx.objectStore('pending_cache').delete(targetId);
-    tx.objectStore('offline_actions').add({ orderId: targetId, payload, tempId: 'ACTION_' + Date.now() });
+try {
+let finalBillNum = targetId;
+const db = await openLocalDb();
+const tx = db.transaction(['pending_cache', 'offline_actions'], 'readwrite');
+tx.objectStore('pending_cache').delete(targetId);
+tx.objectStore('offline_actions').add({ orderId: targetId, payload, tempId: 'ACTION_' + Date.now() });
 
-    const isTempId = String(targetId).startsWith('OFFLINE_') || String(targetId).length > 20;
+const isTempId = String(targetId).startsWith('OFFLINE_') || String(targetId).length > 20;
 
-    if (navigator.onLine) {
-      const endpoint = isTempId ? `${link}/orders` : `${link}/orders/${targetId}`;
-      const method = isTempId ? 'POST' : 'PATCH';
+if (navigator.onLine) {
+const endpoint = isTempId ? `${link}/orders` : `${link}/orders/${targetId}`;
+const method = isTempId ? 'POST' : 'PATCH';
 
-      const res = await fetch(endpoint, {
-        method: method,
-        headers: {
-          'Authorization': `Bearer ${Token}`,
-          'Content-Type': 'application/json',
-          'shop-id': shopId,
-          'client-uid': clientUid
-        },
-        body: JSON.stringify(payload)
-      });
+const res = await fetch(endpoint, {
+method: method,
+headers: {
+'Authorization': `Bearer ${Token}`,
+'Content-Type': 'application/json',
+'shop-id': shopId,
+'client-uid': clientUid
+},
+body: JSON.stringify(payload)
+});
 
-      if (res.ok) {
-        const result = await res.json().catch(() => ({}));
-        if (result.billnum || result.id) finalBillNum = result.billnum || result.id;
+if (res.ok) {
+const result = await res.json().catch(() => ({}));
+if (result.billnum || result.id) finalBillNum = result.billnum || result.id;
+if (result.shopname || result.shop_name) shopProfile.value.shop_name = result.shopname || result.shop_name;
+if (result.s_mobile || result.mobile) shopProfile.value.s_mobile = result.s_mobile || result.mobile;
+if (result.s_address || result.address) shopProfile.value.s_address = result.s_address || result.address;
 
-        const cleanTx = db.transaction(['offline_actions'], 'readwrite');
-        const store = cleanTx.objectStore('offline_actions');
-        store.openCursor().onsuccess = (e) => {
-          const cursor = e.target.result;
-          if (cursor) {
-            if (cursor.value.orderId === targetId) cursor.delete();
-            cursor.continue();
-          }
-        };
-      }
-    }
+const cleanTx = db.transaction(['offline_actions'], 'readwrite');
+const store = cleanTx.objectStore('offline_actions');
+store.openCursor().onsuccess = (e) => {
+const cursor = e.target.result;
+if (cursor) {
+if (cursor.value.orderId === targetId) cursor.delete();
+cursor.continue();
+}
+};
+}
+}
 
-    const printPayload = {
-      arrays: JSON.parse(JSON.stringify(selectedItems.value.map(i => ({ ...i, price: i.price * i.qty })))),
-      rcvalue: Number(rc.value),
-      scvalue: Number(sc.value),
-      stotal: Number(subtotal.value),
-      total: Number(total.value),
-      billnum: finalBillNum,
-      currency: currency.value,
-      shopname: selectedOrder.value.shopname || 'KINETIC POS',
-      orderType: selectedOrder.value.orderType || 'DINE-IN'
-    };
+// 1. Print KOT first
+const kotPayload = {
+arrays: JSON.parse(JSON.stringify(selectedItems.value.map(i => ({ ...i, price: i.price * i.qty })))),
+billnum: finalBillNum,
+orderType: (selectedOrder.value.orderType || 'takeaway').toUpperCase(),
+paymentType: (selectedOrder.value.paymentType || 'cash').toUpperCase(),
+date: new Date().toLocaleDateString(),
+time: new Date().toLocaleTimeString(),
+shopname: shopProfile.value.shop_name,
+s_mobile: shopProfile.value.s_mobile,
+s_address: shopProfile.value.s_address
+};
+await printReceipt(kotPayload);
 
-    const printResult = await printReceipt(printPayload);
-    if (!printResult.success) {
-      console.warn('Printer note:', printResult.error);
-    }
+// Brief pause between printing KOT and Customer Bill
+await new Promise(resolve => setTimeout(resolve, 1000));
 
-    pendingOrders.value = pendingOrders.value.filter(o => o.id !== targetId);
-    selectedOrder.value = null;
-    selectedItems.value = [];
-    rc.value = 0;
-    sc.value = 0;
+// 2. Print Customer Bill
+const printPayload = {
+arrays: JSON.parse(JSON.stringify(selectedItems.value.map(i => ({ ...i, price: i.price * i.qty })))),
+rcvalue: Number(rc.value),
+scvalue: Number(sc.value),
+stotal: Number(subtotal.value),
+total: Number(total.value),
+billnum: finalBillNum,
+currency: currency.value,
+shopname: shopProfile.value.shop_name,
+s_mobile: shopProfile.value.s_mobile,
+s_address: shopProfile.value.s_address,
+orderType: selectedOrder.value.orderType || 'takeaway',
+paymentType: selectedOrder.value.paymentType || 'cash',
+date: new Date().toLocaleDateString(),
+time: new Date().toLocaleTimeString()
+};
 
-    // Notify sibling components via event bus
-    eventBus.triggerRefresh();
-  } catch (err) {
-    console.error("Bill save failed:", err);
-    alert(err.message || "Could not save bill.");
-  } finally {
-    saving.value = false;
-    buttonText.value = 'Save & Pay';
-  }
+const printResult = await printReceipt(printPayload);
+if (!printResult.success) {
+console.warn('Printer note:', printResult.error);
+}
+
+pendingOrders.value = pendingOrders.value.filter(o => o.id !== targetId);
+selectedOrder.value = null;
+selectedItems.value = [];
+rc.value = 0;
+sc.value = 0;
+
+eventBus.triggerRefresh();
+} catch (err) {
+console.error("Bill save failed:", err);
+alert(err.message || "Could not save bill.");
+} finally {
+saving.value = false;
+buttonText.value = 'Save & Pay';
+}
 }
 
 async function fetchPendingOrders() {
-  const db = await openLocalDb();
-  
-  const offlineActions = await new Promise((resolve) => {
-    const tx = db.transaction(['offline_actions'], 'readonly');
-    const store = tx.objectStore('offline_actions');
-    const req = store.getAll();
-    req.onsuccess = () => resolve(req.result || []);
-    req.onerror = () => resolve([]);
-  });
-  const processedOrderIds = new Set(offlineActions.map(a => a.orderId));
+const db = await openLocalDb();
+const offlineActions = await new Promise((resolve) => {
+const tx = db.transaction(['offline_actions'], 'readonly');
+const store = tx.objectStore('offline_actions');
+const req = store.getAll();
+req.onsuccess = () => resolve(req.result || []);
+req.onerror = () => resolve([]);
+});
+const processedOrderIds = new Set(offlineActions.map(a => a.orderId));
 
-  if (!navigator.onLine) {
-    const cachedData = await loadPendingFromCache();
-    const filteredCache = cachedData.filter(order => !processedOrderIds.has(order.id));
-    pendingOrders.value = filteredCache;
-    if (filteredCache.length > 0) currency.value = filteredCache[0].currency || 'LKR';
-    loading.value = false;
-    return;
-  }
+// Load cached shop profile as well
+const cachedProfile = await loadShopProfileFromCache();
+if (cachedProfile) {
+shopProfile.value = cachedProfile;
+}
 
-  try {
-    const res = await fetch(`${link}/pendingorders`, {
-      headers: { 'Authorization': `Bearer ${Token}`, 'shop-id': shopId, 'client-uid': clientUid }
-    });
-    if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
-    const serverData = await res.json();
-    
-    const validServerOrders = serverData
-      .filter(order => !processedOrderIds.has(order.id))
-      .map(order => ({
-        ...order,
-        items: (order.items || []).map(it => ({ ...it, isBackendData: true }))
-      }));
+if (!navigator.onLine) {
+const cachedData = await loadPendingFromCache();
+const filteredCache = cachedData.filter(order => !processedOrderIds.has(order.id));
+pendingOrders.value = filteredCache;
+if (filteredCache.length > 0) currency.value = filteredCache[0].currency || 'LKR';
+loading.value = false;
+return;
+}
 
-    pendingOrders.value = validServerOrders;
-    if (validServerOrders.length > 0) currency.value = validServerOrders[0].currency || 'LKR';
-    
-    await cachePendingOrders(validServerOrders);
-  } catch (err) {
-    const cachedData = await loadPendingFromCache();
-    const filteredCache = cachedData.filter(order => !processedOrderIds.has(order.id));
-    pendingOrders.value = filteredCache;
-    if (filteredCache.length > 0) currency.value = filteredCache[0].currency || 'LKR';
-  } finally {
-    loading.value = false;
-  }
+try {
+const res = await fetch(`${link}/pendingorders`, {
+headers: { 'Authorization': `Bearer ${Token}`, 'shop-id': shopId, 'client-uid': clientUid }
+});
+if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
+const serverData = await res.json();
+const validServerOrders = serverData
+.filter(order => !processedOrderIds.has(order.id))
+.map(order => ({
+...order,
+items: (order.items || []).map(it => ({ ...it, isBackendData: true }))
+}));
+
+pendingOrders.value = validServerOrders;
+if (validServerOrders.length > 0) currency.value = validServerOrders[0].currency || 'LKR';
+await cachePendingOrders(validServerOrders);
+} catch (err) {
+const cachedData = await loadPendingFromCache();
+const filteredCache = cachedData.filter(order => !processedOrderIds.has(order.id));
+pendingOrders.value = filteredCache;
+if (filteredCache.length > 0) currency.value = filteredCache[0].currency || 'LKR';
+} finally {
+loading.value = false;
+}
 }
 
 onMounted(async () => {
-  if (!Token) {
-    router.push('/');
-    return;
-  }
+if (!Token) {
+router.push('/');
+return;
+}
 
-  window.addEventListener('online', updateNetworkStatus);
-  window.addEventListener('offline', updateNetworkStatus);
+window.addEventListener('online', updateNetworkStatus);
+window.addEventListener('offline', updateNetworkStatus);
 
-  // Added event bus listener to automatically refresh pending orders in real-time
-  if (eventBus && typeof eventBus.on === 'function') {
-    eventBus.on('refresh', async () => {
-      await fetchPendingOrders();
-    });
-  }
+if (eventBus && typeof eventBus.on === 'function') {
+eventBus.on('refresh', async () => {
+await fetchPendingOrders();
+});
+}
 
-  loading.value = true;
-  
-  if (navigator.onLine) {
-    await syncOfflineActions();
-  } else {
-    await fetchPendingOrders();
-  }
+loading.value = true;
+if (navigator.onLine) {
+await syncOfflineActions();
+} else {
+await fetchPendingOrders();
+}
 });
 
 onUnmounted(() => {
-  window.removeEventListener('online', updateNetworkStatus);
-  window.removeEventListener('offline', updateNetworkStatus);
+window.removeEventListener('online', updateNetworkStatus);
+window.removeEventListener('offline', updateNetworkStatus);
 });
 </script>
+
 <style scoped>
 html, body {
-  margin: 0;
-  padding: 0;
-  height: 100vh;
-  background-color: #f0f8ff;
-  overflow: hidden;
+margin: 0;
+padding: 0;
+height: 100vh;
+background-color: #f0f8ff;
+overflow: hidden;
 }
 
 .client-wrapper {
-  width: 100vw;
-  display: flex;
-  flex-direction: row;
-  align-items: stretch;
-  justify-content: center;
-  height: 100vh;
-  overflow: hidden;
-  background-color: #f0f8ff;
-  box-sizing: border-box;
+width: 100vw;
+display: flex;
+flex-direction: row;
+align-items: stretch;
+justify-content: center;
+height: 100vh;
+overflow: hidden;
+background-color: #f0f8ff;
+box-sizing: border-box;
 }
 
 .offline-badge {
-  font-size: 0.7rem;
-  background-color: #ef4444;
-  color: white;
-  padding: 2px 6px;
-  border-radius: 4px;
-  vertical-align: middle;
-  margin-left: 8px;
+font-size: 0.7rem;
+background-color: #ef4444;
+color: white;
+padding: 2px 6px;
+border-radius: 4px;
+vertical-align: middle;
+margin-left: 8px;
 }
 
 .pending-pane {
-  width: 50%;
-  background: #ffffff;
-  border-right: 1px solid #e2e8f0;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  box-sizing: border-box;
+width: 50%;
+background: #ffffff;
+border-right: 1px solid #e2e8f0;
+display: flex;
+flex-direction: column;
+min-height: 0;
+box-sizing: border-box;
 }
 
 .head {
-  padding: 18px 20px;
-  background: #041528;
-  color: white;
-  flex-shrink: 0;
-  font-size: 1.15rem;
-  font-weight: 600;
-  letter-spacing: 0.3px;
+padding: 18px 20px;
+background: #041528;
+color: white;
+flex-shrink: 0;
+font-size: 1.15rem;
+font-weight: 600;
+letter-spacing: 0.3px;
 }
 
 .pending-list {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 15px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  background-color: #f8fafc;
+flex: 1;
+min-height: 0;
+overflow-y: auto;
+padding: 15px;
+display: flex;
+flex-direction: column;
+gap: 12px;
+background-color: #f8fafc;
 }
 
 .pending-card {
-  background: #ffffff;
-  border: 1px solid #cbd5e1;
-  border-radius: 10px;
-  padding: 14px 16px;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: all 0.2s ease;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+background: #ffffff;
+border: 1px solid #cbd5e1;
+border-radius: 10px;
+padding: 14px 16px;
+cursor: pointer;
+flex-shrink: 0;
+transition: all 0.2s ease;
+box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+display: flex;
+flex-direction: column;
+gap: 6px;
 }
 
 .pending-card:hover { 
-  border-color: #0077B6; 
-  background: #f0f8ff; 
+border-color: #0077B6; 
+background: #f0f8ff; 
 }
 
 .pending-card.active { 
-  border-color: #0077B6; 
-  background: #e6f4fb; 
-  box-shadow: 0 0 0 2px rgba(0, 119, 182, 0.2); 
+border-color: #0077B6; 
+background: #e6f4fb; 
+box-shadow: 0 0 0 2px rgba(0, 119, 182, 0.2); 
 }
 
 .card-top-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+display: flex;
+justify-content: space-between;
+align-items: center;
 }
 
 .order-id {
-  font-weight: 700;
-  color: #041528;
-  font-size: 0.95rem;
+font-weight: 700;
+color: #041528;
+font-size: 0.95rem;
 }
 
 .order-total {
-  font-weight: 700;
-  color: #0077B6;
-  font-size: 0.95rem;
+font-weight: 700;
+color: #0077B6;
+font-size: 0.95rem;
 }
 
 .card-mid-row {
-  display: flex;
-  justify-content: space-between;
+display: flex;
+justify-content: space-between;
 }
 
 .customer-name {
-  font-weight: 600;
-  color: #334155;
-  font-size: 0.9rem;
+font-weight: 600;
+color: #334155;
+font-size: 0.9rem;
 }
 
 .card-bot-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 2px;
+display: flex;
+justify-content: space-between;
+align-items: center;
+margin-top: 2px;
 }
 
 .muted { 
-  color: #64748b; 
-  font-size: 0.8rem; 
+color: #64748b; 
+font-size: 0.8rem; 
 }
 
 .empty { 
-  padding: 40px; 
-  text-align: center; 
-  color: #94a3b8; 
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.95rem;
+padding: 40px; 
+text-align: center; 
+color: #94a3b8; 
+display: flex;
+flex-direction: column;
+align-items: center;
+gap: 8px;
+font-size: 0.95rem;
 }
 
 .empty-icon {
-  font-size: 2rem;
+font-size: 2rem;
 }
 
 .client-bill {
-  width: 50%;
-  background-color: #ffffff;
-  color: #1e293b;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  box-sizing: border-box;
+width: 50%;
+background-color: #ffffff;
+color: #1e293b;
+overflow: hidden;
+display: flex;
+flex-direction: column;
+box-sizing: border-box;
 }
 
 .bill-header {
-  padding: 18px 20px 0 20px;
-  background: #ffffff;
-  flex-shrink: 0;
+padding: 18px 20px 0 20px;
+background: #ffffff;
+flex-shrink: 0;
 }
 
 #h1 {
-  width: 100%;
-  margin: 0;
-  font-size: 1.15rem;
-  color: #041528;
-  font-weight: 600;
+width: 100%;
+margin: 0;
+font-size: 1.15rem;
+color: #041528;
+font-weight: 600;
 }
 
 .heads {
-  width: 100%;
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 20px;
-  flex-shrink: 0;
-  border-bottom: 2px solid #e2e8f0;
-  box-sizing: border-box;
-  background: #ffffff;
+width: 100%;
+display: flex;
+flex-direction: row;
+align-items: center;
+justify-content: space-between;
+padding: 12px 20px;
+flex-shrink: 0;
+border-bottom: 2px solid #e2e8f0;
+box-sizing: border-box;
+background: #ffffff;
 }
 
 .heads h3 {
-  margin: 0;
-  font-size: 0.85rem;
-  color: #64748b;
-  font-weight: 600;
+margin: 0;
+font-size: 0.85rem;
+color: #64748b;
+font-weight: 600;
 }
 
 #n { width: 50%; text-align: left; }
@@ -727,146 +785,168 @@ html, body {
 #p { text-align: right; width: 35%; }
 
 .bills {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  width: 100%;
-  padding: 0 20px;
-  box-sizing: border-box;
+flex: 1;
+min-height: 0;
+overflow-y: auto;
+overflow-x: hidden;
+width: 100%;
+padding: 0 20px;
+box-sizing: border-box;
 }
 
 .bdata {
-  width: 100%;
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 4px;
-  font-size: 0.85rem;
-  cursor: pointer;
-  border-bottom: 1px solid #f1f5f9;
-  transition: background 0.15s;
+width: 100%;
+display: flex;
+flex-direction: row;
+align-items: center;
+justify-content: space-between;
+padding: 10px 4px;
+font-size: 0.85rem;
+cursor: pointer;
+border-bottom: 1px solid #f1f5f9;
+transition: background 0.15s;
 }
 
 .bdata:hover { 
-  background: rgba(239, 68, 68, 0.05); 
-  border-radius: 6px;
+background: rgba(239, 68, 68, 0.05); 
+border-radius: 6px;
 }
 
 .n { 
-  width: 50%; 
-  text-align: left; 
-  overflow: hidden; 
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: #334155;
-  font-weight: 500;
+width: 50%; 
+text-align: left; 
+overflow: hidden; 
+text-overflow: ellipsis;
+white-space: nowrap;
+color: #334155;
+font-weight: 500;
 }
 
 .q { 
-  overflow: hidden; 
-  text-align: center; 
-  width: 15%; 
-  color: #64748b;
+overflow: hidden; 
+text-align: center; 
+width: 15%; 
+color: #64748b;
 }
 
 .p { 
-  overflow: hidden; 
-  text-align: right; 
-  width: 35%; 
-  color: #1e293b;
-  font-weight: 600;
+overflow: hidden; 
+text-align: right; 
+width: 35%; 
+color: #1e293b;
+font-weight: 600;
 }
 
 .last {
-  position: sticky;
-  bottom: 0;
-  background: #f8fafc;
-  border-top: 1px solid #e2e8f0;
-  padding: 15px 20px;
-  flex-shrink: 0;
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+position: sticky;
+bottom: 0;
+background: #f8fafc;
+border-top: 1px solid #e2e8f0;
+padding: 15px 20px;
+flex-shrink: 0;
+box-sizing: border-box;
+display: flex;
+flex-direction: column;
+gap: 10px;
+}
+
+.calc-row {
+display: flex;
+flex-direction: row;
+align-items: center;
+justify-content: space-between;
+width: 100%;
+font-size: 0.9rem;
+color: #475569;
+font-weight: 500;
+}
+
+.read-only-row {
+background: #e2e8f0;
+padding: 6px 10px;
+border-radius: 6px;
+}
+
+.badge-text {
+font-weight: 600;
+color: #041528;
 }
 
 .last span {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  font-size: 0.9rem;
-  color: #475569;
-  font-weight: 500;
+display: flex;
+flex-direction: row;
+align-items: center;
+justify-content: space-between;
+width: 100%;
+font-size: 0.9rem;
+color: #475569;
+font-weight: 500;
 }
 
 .input-span input { 
-  width: 65px; 
-  padding: 4px;
-  text-align: center; 
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  font-size: 0.85rem;
-  background: #ffffff;
-  color: #1e293b;
-  outline: none;
+width: 65px; 
+padding: 4px;
+text-align: center; 
+border: 1px solid #cbd5e1;
+border-radius: 6px;
+font-size: 0.85rem;
+background: #ffffff;
+color: #1e293b;
+outline: none;
 }
 
 .input-span input:focus {
-  border-color: #0077B6;
+border-color: #0077B6;
 }
 
 .total-span {
-  font-size: 1.1rem !important;
-  font-weight: 700 !important;
-  color: #041528 !important;
-  border-top: 1px dashed #cbd5e1;
-  padding-top: 8px;
-  margin-top: 2px;
+font-size: 1.1rem !important;
+font-weight: 700 !important;
+color: #041528 !important;
+border-top: 1px dashed #cbd5e1;
+padding-top: 8px;
+margin-top: 2px;
 }
 
 .action-buttons {
-  display: flex;
-  gap: 10px;
-  width: 100%;
-  margin-top: 4px;
+display: flex;
+gap: 10px;
+width: 100%;
+margin-top: 4px;
 }
 
 button {
-  padding: 12px;
-  font-size: 1rem;
-  font-weight: 600;
-  width: 100%;
-  margin-top: 0;
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: background-color 0.2s;
+padding: 12px;
+font-size: 1rem;
+font-weight: 600;
+width: 100%;
+margin-top: 0;
+border: none;
+border-radius: 8px;
+cursor: pointer;
+transition: background-color 0.2s;
 }
 
 .reject-btn {
-  background-color: #ef4444;
-  color: #ffffff;
+background-color: #ef4444;
+color: #ffffff;
 }
 
 .reject-btn:hover {
-  background-color: #dc2626;
+background-color: #dc2626;
 }
 
 .pay-btn {
-  background-color: #0077B6;
-  color: #ffffff;
+background-color: #0077B6;
+color: #ffffff;
 }
 
 .pay-btn:hover {
-  background-color: #026094;
+background-color: #026094;
 }
 
 button:disabled {
-  background-color: #94a3b8;
-  cursor: not-allowed;
+background-color: #94a3b8;
+cursor: not-allowed;
 }
 </style>

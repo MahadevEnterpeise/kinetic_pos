@@ -1077,60 +1077,65 @@ throw new Error(`[DB Error] Failed to save bill and update stock: ${error.messag
 
 
     getOrdersWithNestedItems: async (shopId, status = 'pending') => {
-        try {
-            const shopQuery = `SELECT currency FROM users WHERE sid = ? AND usertype = 'owner' LIMIT 1`;
-            const [shopRows] = await db.query(shopQuery, [shopId]);
-            const currency = shopRows.length > 0 ? shopRows[0].currency : 'Rs.';
+  try {
+    const shopQuery = `SELECT currency FROM users WHERE sid = ? AND usertype = 'owner' LIMIT 1`;
+    const [shopRows] = await db.query(shopQuery, [shopId]);
+    const currency = shopRows.length > 0 ? shopRows[0].currency : 'LKR';
 
-            const queryText = `
-                SELECT billnum, pid, name, qty, price, sc, rc, status, mobile, client, DATE_FORMAT(time, '%Y-%m-%dT%H:%i:%sz') AS date
-                FROM shopbill
-                WHERE sid = ? AND status = ?
-                ORDER BY time ASC
-            `;
-            const [rows] = await db.query(queryText, [shopId, status]);
+    const queryText = `
+      SELECT billnum, pid, name, qty, price, sc, rc, status, mobile, client, orderType, paymentType, DATE_FORMAT(time, '%Y-%m-%dT%H:%i:%sz') AS date
+      FROM shopbill
+      WHERE sid = ? AND status = ?
+      ORDER BY time ASC
+    `;
+    const [rows] = await db.query(queryText, [shopId, status]);
 
-            const ordersMap = {};
-            rows.forEach(row => {
-                if (!ordersMap[row.billnum]) {
-                    ordersMap[row.billnum] = {
-                        id: row.billnum,
-                        shopId: shopId.toString(),
-                        customer: 'Customer',
-                        mobile: row.mobile || '',
-                        client: row.client || '',
-                        currency: currency,
-                        date: row.date,
-                        status: row.status,
-                        servicePct: row.sc || 0,
-                        discount: row.rc || 0,
-                        total: 0,
-                        items: []
-                    };
-                }
-                const lineTotal = row.price * row.qty;
-                ordersMap[row.billnum].items.push({
-                    itemid: row.pid,
-                    id: row.pid,
-                    name: row.name,
-                    qty: row.qty,
-                    price: lineTotal
-                });
-            });
+    const ordersMap = {};
+    rows.forEach(row => {
+      if (!ordersMap[row.billnum]) {
+        ordersMap[row.billnum] = {
+          id: row.billnum,
+          shopId: shopId.toString(),
+          customer: 'Customer',
+          mobile: row.mobile || '',
+          client: row.client || '',
+          currency: currency,
+          date: row.date,
+          status: row.status,
+          servicePct: row.sc || 0,
+          discount: row.rc || 0,
+          orderType: row.orderType || 'takeaway',     // Assigned correctly at order level
+          paymentType: row.paymentType || 'cash',     // Assigned correctly at order level
+          total: 0,
+          items: []
+        };
+      }
 
-            Object.values(ordersMap).forEach(order => {
-                const subtotal = order.items.reduce((sum, item) => sum + item.price, 0);
-                const chargeAmount = (subtotal * order.servicePct) / 100;
-                const stotal = subtotal + chargeAmount;
-                const reduce = (stotal * order.discount) / 100;
-                order.total = Math.max(0, stotal - reduce);
-            });
+      const lineTotal = row.price * row.qty;
+      ordersMap[row.billnum].items.push({
+        itemid: row.pid,
+        id: row.pid,
+        name: row.name,
+        qty: row.qty,
+        price: lineTotal
+      });
+    });
 
-            return Object.values(ordersMap);
-        } catch (error) {
-            throw new Error(`[DB Error] Failed to compile pending items list: ${error.message}`);
-        }
-    },
+    Object.values(ordersMap).forEach(order => {
+      const subtotal = order.items.reduce((sum, item) => sum + item.price, 0);
+      const chargeAmount = (subtotal * order.servicePct) / 100;
+      const stotal = subtotal + chargeAmount;
+      const reduce = (stotal * order.discount) / 100;
+      order.total = Math.max(0, stotal - reduce);
+    });
+
+    return Object.values(ordersMap);
+
+  } catch (error) {
+    throw new Error(`[DB Error] Failed to compile pending items list: ${error.message}`);
+  }
+},
+
 
     updateOrderStatusSimple: async (billNum, shopId, status,clientUid) => {
         try {
