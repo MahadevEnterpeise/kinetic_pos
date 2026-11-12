@@ -13,8 +13,8 @@ export default defineConfig({
       },
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
       manifest: {
-        name: 'My Vue POS',
-        short_name: 'VuePOS',
+        name: 'KineticPOS',
+        short_name: 'kinetic POS',
         description: 'A fast and reliable Progressive Web App Point of Sale',
         theme_color: '#ffffff',
         background_color: '#ffffff',
