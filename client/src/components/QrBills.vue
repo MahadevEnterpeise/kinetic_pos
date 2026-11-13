@@ -4,7 +4,7 @@
 <!-- LEFT PANE: PENDING LIST -->
 <div class="pending-pane">
 <div class="head">
-Pending Orders <span v-if="isOffline" class="offline-badge">🔌 Offline</span><button @click="fetchPendingOrders()">Fetch</button>
+Pending Orders <button @click="fetchPendingOrders()">Fetch</button>
 </div>
 
 <div class="pending-list">
@@ -132,151 +132,12 @@ const sc = ref(0);
 const rc = ref(0);
 const billshow = ref(false);
 const saving = ref(false);
-const isOffline = ref(!navigator.onLine);
 
 const shopProfile = ref({
 shop_name: 'KINETIC POS',
 s_mobile: '',
 s_address: ''
 });
-
-// --- INDEXEDDB SETUP & HELPERS ---
-const DB_NAME = 'KineticPOS_Local';
-const DB_VERSION = 7;
-
-function openLocalDb() {
-return new Promise((resolve, reject) => {
-const request = indexedDB.open(DB_NAME, DB_VERSION);
-request.onerror = (e) => reject('IndexedDB error: ' + e.target.error);
-request.onsuccess = (e) => resolve(e.target.result);
-request.onupgradeneeded = (e) => {
-const db = e.target.result;
-if (!db.objectStoreNames.contains('catalog')) {
-db.createObjectStore('catalog', { keyPath: 'id' });
-}
-if (!db.objectStoreNames.contains('offline_bills')) {
-db.createObjectStore('offline_bills', { keyPath: 'tempId' });
-}
-if (!db.objectStoreNames.contains('pending_cache')) {
-db.createObjectStore('pending_cache', { keyPath: 'id' });
-}
-if (!db.objectStoreNames.contains('offline_actions')) {
-db.createObjectStore('offline_actions', { keyPath: 'tempId', autoIncrement: true });
-}
-if (!db.objectStoreNames.contains('shop_profile')) {
-db.createObjectStore('shop_profile', { keyPath: 'id' });
-}
-};
-});
-}
-
-async function loadShopProfileFromCache() {
-try {
-const db = await openLocalDb();
-return new Promise((resolve) => {
-const tx = db.transaction(['shop_profile'], 'readonly');
-const store = tx.objectStore('shop_profile');
-const req = store.get('current_profile');
-req.onsuccess = () => resolve(req.result || null);
-req.onerror = () => resolve(null);
-});
-} catch (err) {
-return null;
-}
-}
-
-async function cachePendingOrders(orders) {
-try {
-const db = await openLocalDb();
-const tx = db.transaction(['pending_cache'], 'readwrite');
-const store = tx.objectStore('pending_cache');
-store.clear();
-orders.forEach(order => store.put(order));
-} catch (err) {
-console.error('Failed to cache pending orders locally:', err);
-}
-}
-
-async function loadPendingFromCache() {
-try {
-const db = await openLocalDb();
-return new Promise((resolve) => {
-const tx = db.transaction(['pending_cache'], 'readonly');
-const store = tx.objectStore('pending_cache');
-const req = store.getAll();
-req.onsuccess = () => resolve(req.result || []);
-req.onerror = () => resolve([]);
-});
-} catch (err) {
-return [];
-}
-}
-
-// --- SYNC ENGINE ---
-async function syncOfflineActions() {
-if (!navigator.onLine) return;
-loading.value = true;
-saving.value = true;
-
-try {
-const db = await openLocalDb();
-const actionsPromise = new Promise((resolve, reject) => {
-const tx = db.transaction(['offline_actions'], 'readonly');
-const store = tx.objectStore('offline_actions');
-const req = store.getAll();
-req.onsuccess = () => resolve(req.result || []);
-req.onerror = () => reject(req.error);
-});
-
-const offlineActions = await actionsPromise;
-
-if (offlineActions.length > 0) {
-for (const action of offlineActions) {
-try {
-const isTempId = String(action.orderId).startsWith('OFFLINE_') || String(action.orderId).length > 20;
-const endpoint = (action.payload.status === 'paid' && isTempId) 
-? `${link}/orders` 
-: `${link}/orders/${action.orderId}`;
-const method = (action.payload.status === 'paid' && isTempId) ? 'POST' : 'PATCH';
-
-const response = await fetch(endpoint, {
-method: method,
-headers: { 
-'Authorization': `Bearer ${Token}`, 
-'Content-Type': 'application/json', 
-'shop-id': shopId,
-'client-uid': clientUid
-},
-body: JSON.stringify(action.payload)
-});
-
-if (response.ok || response.status === 404 || response.status === 400) {
-const cleanupTx = db.transaction(['offline_actions', 'pending_cache'], 'readwrite');
-cleanupTx.objectStore('offline_actions').delete(action.tempId);
-cleanupTx.objectStore('pending_cache').delete(action.orderId);
-}
-} catch (e) {
-console.warn('Sync attempt failed for action, will retry later.');
-}
-}
-}
-
-await fetchPendingOrders();
-} catch (err) {
-console.error('Error during background action sync:', err);
-await fetchPendingOrders();
-} finally {
-loading.value = false;
-saving.value = false;
-}
-}
-
-async function updateNetworkStatus() {
-isOffline.value = !navigator.onLine;
-if (!isOffline.value) {
-await syncOfflineActions();
-}
-}
 
 const subtotal = computed(() => {
 return selectedItems.value.reduce((sum, item) => sum + (item.price * item.qty), 0);
@@ -330,14 +191,6 @@ rc: Number(rc.value) || 0
 };
 
 try {
-const db = await openLocalDb();
-const tx = db.transaction(['pending_cache', 'offline_actions'], 'readwrite');
-tx.objectStore('pending_cache').delete(targetId);
-tx.objectStore('offline_actions').add({ orderId: targetId, payload, tempId: 'ACTION_' + Date.now() });
-
-const isTempId = String(targetId).startsWith('OFFLINE_') || String(targetId).length > 20;
-
-if (navigator.onLine && !isTempId) {
 const response = await fetch(`${link}/orders/${targetId}`, {
 method: 'PATCH',
 headers: { 
@@ -348,18 +201,8 @@ headers: {
 },
 body: JSON.stringify(payload)
 });
-if (response.ok) {
-const cleanTx = db.transaction(['offline_actions'], 'readwrite');
-const store = cleanTx.objectStore('offline_actions');
-store.openCursor().onsuccess = (e) => {
-const cursor = e.target.result;
-if (cursor) {
-if (cursor.value.orderId === targetId) cursor.delete();
-cursor.continue();
-}
-};
-}
-}
+
+if (!response.ok) throw new Error('Failed to reject order on server');
 
 pendingOrders.value = pendingOrders.value.filter(item => item.id !== targetId);
 selectedOrder.value = null;
@@ -415,19 +258,9 @@ staffName: 'Cashier'
 
 try {
 let finalBillNum = targetId;
-const db = await openLocalDb();
-const tx = db.transaction(['pending_cache', 'offline_actions'], 'readwrite');
-tx.objectStore('pending_cache').delete(targetId);
-tx.objectStore('offline_actions').add({ orderId: targetId, payload, tempId: 'ACTION_' + Date.now() });
 
-const isTempId = String(targetId).startsWith('OFFLINE_') || String(targetId).length > 20;
-
-if (navigator.onLine) {
-const endpoint = isTempId ? `${link}/orders` : `${link}/orders/${targetId}`;
-const method = isTempId ? 'POST' : 'PATCH';
-
-const res = await fetch(endpoint, {
-method: method,
+const res = await fetch(`${link}/orders/${targetId}`, {
+method: 'PATCH',
 headers: {
 'Authorization': `Bearer ${Token}`,
 'Content-Type': 'application/json',
@@ -437,24 +270,16 @@ headers: {
 body: JSON.stringify(payload)
 });
 
-if (res.ok) {
+if (!res.ok) {
+const errData = await res.json().catch(() => ({}));
+throw new Error(errData.error || `Save failed: ${res.status}`);
+}
+
 const result = await res.json().catch(() => ({}));
 if (result.billnum || result.id) finalBillNum = result.billnum || result.id;
 if (result.shopname || result.shop_name) shopProfile.value.shop_name = result.shopname || result.shop_name;
 if (result.s_mobile || result.mobile) shopProfile.value.s_mobile = result.s_mobile || result.mobile;
 if (result.s_address || result.address) shopProfile.value.s_address = result.s_address || result.address;
-
-const cleanTx = db.transaction(['offline_actions'], 'readwrite');
-const store = cleanTx.objectStore('offline_actions');
-store.openCursor().onsuccess = (e) => {
-const cursor = e.target.result;
-if (cursor) {
-if (cursor.value.orderId === targetId) cursor.delete();
-cursor.continue();
-}
-};
-}
-}
 
 // 1. Print KOT first
 const kotPayload = {
@@ -513,55 +338,18 @@ buttonText.value = 'Save & Pay';
 }
 
 async function fetchPendingOrders() {
-const db = await openLocalDb();
-const offlineActions = await new Promise((resolve) => {
-const tx = db.transaction(['offline_actions'], 'readonly');
-const store = tx.objectStore('offline_actions');
-const req = store.getAll();
-req.onsuccess = () => resolve(req.result || []);
-req.onerror = () => resolve([]);
-});
-const processedOrderIds = new Set(offlineActions.map(a => a.orderId));
-
-// Load cached shop profile safely
-const cachedProfile = await loadShopProfileFromCache();
-if (cachedProfile) {
-shopProfile.value = cachedProfile;
-}
-
-if (!navigator.onLine) {
-const cachedData = await loadPendingFromCache();
-const filteredCache = cachedData.filter(order => !processedOrderIds.has(order.id));
-pendingOrders.value = filteredCache;
-if (filteredCache.length > 0) currency.value = filteredCache[0].currency || 'LKR';
-loading.value = false;
-return;
-}
-
+loading.value = true;
 try {
 const res = await fetch(`${link}/pendingorders`, {
 headers: { 'Authorization': `Bearer ${Token}`, 'shop-id': shopId, 'client-uid': clientUid }
 });
 if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
 const serverData = await res.json();
-const validServerOrders = serverData
-.filter(order => !processedOrderIds.has(order.id))
-.map(order => ({
-...order,
-items: (order.items || []).map(it => ({ ...it, isBackendData: true }))
-}));
-
-pendingOrders.value = validServerOrders;
-if (validServerOrders.length > 0) currency.value = validServerOrders[0].currency || 'LKR';
-await cachePendingOrders(validServerOrders);
-isOffline.value = false;
+pendingOrders.value = serverData;
+if (serverData.length > 0) currency.value = serverData[0].currency || 'LKR';
 } catch (err) {
-console.warn("Server connection failed, falling back to local pending cache:", err);
-isOffline.value = true;
-const cachedData = await loadPendingFromCache();
-const filteredCache = cachedData.filter(order => !processedOrderIds.has(order.id));
-pendingOrders.value = filteredCache;
-if (filteredCache.length > 0) currency.value = filteredCache[0].currency || 'LKR';
+console.error("Failed to fetch pending orders:", err);
+pendingOrders.value = [];
 } finally {
 loading.value = false;
 }
@@ -569,17 +357,11 @@ loading.value = false;
 
 onMounted(async () => {
 if (!Token) {
-// Run this when logging out or switching users
 indexedDB.deleteDatabase('KineticPOS_Local');
 sessionStorage.clear();
 router.push('/');
-
-router.push('/');
 return;
 }
-
-window.addEventListener('online', updateNetworkStatus);
-window.addEventListener('offline', updateNetworkStatus);
 
 if (eventBus && typeof eventBus.on === 'function') {
 eventBus.on('refresh', async () => {
@@ -587,17 +369,11 @@ await fetchPendingOrders();
 });
 }
 
-loading.value = true;
-if (navigator.onLine) {
-await syncOfflineActions();
-} else {
 await fetchPendingOrders();
-}
 });
 
 onUnmounted(() => {
-window.removeEventListener('online', updateNetworkStatus);
-window.removeEventListener('offline', updateNetworkStatus);
+// Cleanup listeners if needed
 });
 </script>
 
@@ -622,16 +398,6 @@ background-color: #f0f8ff;
 box-sizing: border-box;
 }
 
-.offline-badge {
-font-size: 0.7rem;
-background-color: #ef4444;
-color: white;
-padding: 2px 6px;
-border-radius: 4px;
-vertical-align: middle;
-margin-left: 8px;
-}
-
 .pending-pane {
 width: 50%;
 background: #ffffff;
@@ -650,6 +416,9 @@ flex-shrink: 0;
 font-size: 1.15rem;
 font-weight: 600;
 letter-spacing: 0.3px;
+display: flex;
+justify-content: space-between;
+align-items: center;
 }
 
 .pending-list {
@@ -924,20 +693,31 @@ margin-top: 4px;
 }
 
 button {
-padding: 12px;
-font-size: 1rem;
+padding: 8px 12px;
+font-size: 0.9rem;
 font-weight: 600;
-width: 100%;
-margin-top: 0;
 border: none;
-border-radius: 8px;
+border-radius: 6px;
 cursor: pointer;
 transition: background-color 0.2s;
+}
+
+.head button {
+background: #0284c7;
+color: #ffffff;
+padding: 6px 12px;
+font-size: 0.85rem;
+}
+
+.head button:hover {
+background: #0369a1;
 }
 
 .reject-btn {
 background-color: #ef4444;
 color: #ffffff;
+width: 50%;
+padding: 12px;
 }
 
 .reject-btn:hover {
@@ -947,6 +727,8 @@ background-color: #dc2626;
 .pay-btn {
 background-color: #0077B6;
 color: #ffffff;
+width: 50%;
+padding: 12px;
 }
 
 .pay-btn:hover {
