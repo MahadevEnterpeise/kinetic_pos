@@ -527,6 +527,7 @@ const processedOrderIds = new Set(offlineActions.map(a => a.orderId));
 const cachedProfile = await loadShopProfileFromCache();
 if (cachedProfile) {
 shopProfile.value = cachedProfile;
+alert(shopProfile.shop_name);
 }
 
 if (!navigator.onLine) {
