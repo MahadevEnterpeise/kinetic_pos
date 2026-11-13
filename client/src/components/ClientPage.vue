@@ -102,7 +102,6 @@
 </div>
 
 <div class="action-buttons">
-<button class="hold-btn" @click="holdBill" :disabled="saving">Hold Bill</button>
 <button class="pay-btn" @click="bill('paid')" :disabled="saving">{{ button }}</button>
 </div>
 </div>
