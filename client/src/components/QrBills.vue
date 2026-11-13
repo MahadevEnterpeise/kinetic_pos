@@ -135,14 +135,14 @@ const saving = ref(false);
 const isOffline = ref(!navigator.onLine);
 
 const shopProfile = ref({
-  shop_name: 'KINETIC POS',
-  s_mobile: '',
-  s_address: ''
+shop_name: 'KINETIC POS',
+s_mobile: '',
+s_address: ''
 });
 
 // --- INDEXEDDB SETUP & HELPERS ---
 const DB_NAME = 'KineticPOS_Local';
-const DB_VERSION = 7; // Incremented version to support shop_profile store
+const DB_VERSION = 7;
 
 function openLocalDb() {
 return new Promise((resolve, reject) => {
@@ -523,11 +523,10 @@ req.onerror = () => resolve([]);
 });
 const processedOrderIds = new Set(offlineActions.map(a => a.orderId));
 
-// Load cached shop profile as well
+// Load cached shop profile safely
 const cachedProfile = await loadShopProfileFromCache();
 if (cachedProfile) {
 shopProfile.value = cachedProfile;
-alert(shopProfile.shop_name);
 }
 
 if (!navigator.onLine) {
@@ -555,7 +554,10 @@ items: (order.items || []).map(it => ({ ...it, isBackendData: true }))
 pendingOrders.value = validServerOrders;
 if (validServerOrders.length > 0) currency.value = validServerOrders[0].currency || 'LKR';
 await cachePendingOrders(validServerOrders);
+isOffline.value = false;
 } catch (err) {
+console.warn("Server connection failed, falling back to local pending cache:", err);
+isOffline.value = true;
 const cachedData = await loadPendingFromCache();
 const filteredCache = cachedData.filter(order => !processedOrderIds.has(order.id));
 pendingOrders.value = filteredCache;
