@@ -569,6 +569,11 @@ loading.value = false;
 
 onMounted(async () => {
 if (!Token) {
+// Run this when logging out or switching users
+indexedDB.deleteDatabase('KineticPOS_Local');
+sessionStorage.clear();
+router.push('/');
+
 router.push('/');
 return;
 }

@@ -402,7 +402,9 @@ function logout(){
 sessionStorage.removeItem('userToken');
 
 sessionStorage.removeItem('shopId');
-
+// Run this when logging out or switching users
+indexedDB.deleteDatabase('KineticPOS_Local');
+sessionStorage.clear();
 router.push('/auth');
 
 }
