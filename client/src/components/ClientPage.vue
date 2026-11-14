@@ -1,6 +1,6 @@
 <template>
   <div class="client-wrapper" v-if="!billshow">
-    <!-- Left Side: Product Selection Workspace -->
+    <!-- Left Side: Product Selection Workspace (55%) -->
     <div class="client-work">
       <!-- Category Folder Grid -->
       <div class="folder-grid" v-if="!selected && !open">
@@ -34,7 +34,7 @@
       </div>
     </div>
 
-    <!-- Right Side: POS Billing Panel -->
+    <!-- Right Side: POS Billing Panel (45%) -->
     <div class="client-bill">
       <div class="bill-header">
         <h1 id="h1">Current Bill</h1>
