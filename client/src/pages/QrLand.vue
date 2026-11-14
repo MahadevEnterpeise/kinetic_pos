@@ -256,7 +256,7 @@ const shopId = computed(() => route.params.shopId || sessionStorage.getItem('sho
 const clientUid = sessionStorage.getItem('userToken');
 
 const activeTab = ref('catalog');
-const currency = ref('LKR');
+const currency = ref('');
 const customerMobile = ref('');
 
 // Catalog data
@@ -359,9 +359,8 @@ async function fetchCatalog() {
     }
     
     const data = await res.json();
-    shop.value=data.ShopName
     products.value = Array.isArray(data) ? data : (data.products || []);
-
+    shop.value=products.shopName
     if (products.value.length > 0 && products.value[0].currency) {
       currency.value = products.value[0].currency;
     }
