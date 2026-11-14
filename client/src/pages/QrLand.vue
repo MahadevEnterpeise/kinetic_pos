@@ -5,7 +5,7 @@
     <div class="header-main">
       <h1>{{ activeTab === 'catalog' ? 'Menu & Stock' : 'Bills & Status' }}</h1>
       <div class="header-badges">
-        <span class="badge-pill">Shop: <strong>{{ shopId }}</strong></span>
+        <span class="badge-pill">Shop: <strong>{{ shop }}</strong></span>
         <span v-if="customerMobile" class="badge-pill">📱 {{ customerMobile }}</span>
       </div>
     </div>
@@ -271,7 +271,8 @@ const rawOrders = ref([]);
 const loadingOrders = ref(true);
 const ordersError = ref('');
 const expandedId = ref(null);
-
+//shop data
+const shop=ref('')
 const formatDate = (iso) => {
   if (!iso) return '';
   return new Date(iso).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
@@ -358,6 +359,7 @@ async function fetchCatalog() {
     }
     
     const data = await res.json();
+    shop.value=data.ShopName
     products.value = Array.isArray(data) ? data : (data.products || []);
 
     if (products.value.length > 0 && products.value[0].currency) {
