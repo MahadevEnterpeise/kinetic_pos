@@ -605,7 +605,7 @@ saveLogData: async (username, reason, usertype, status) => {
   try {
     // 1. Select address, mobile, and name along with currency
     const [shopUser] = await db.query(
-      `SELECT currency, address, mobile, name FROM users WHERE sid = ? AND usrtype = ? LIMIT 1`, 
+      `SELECT currency, address, mobile, name FROM users WHERE sid = ? AND usertype = ? LIMIT 1`, 
       [shopId, 'owner']
     );
 
