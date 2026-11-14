@@ -370,7 +370,7 @@ async function bill(statusType = 'paid') {
 }
 
 .client-work {
-  width: 68%;
+  width: 55%;
   height: 100vh;
   padding: 16px;
   display: flex;
@@ -551,7 +551,7 @@ async function bill(statusType = 'paid') {
 }
 
 .client-bill {
-  width: 32%;
+  width: 45%;
   height: 100vh;
   background-color: #1e293b;
   color: #f8fafc;
