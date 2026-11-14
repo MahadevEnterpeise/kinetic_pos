@@ -1,248 +1,248 @@
 <template>
-<div class="portal-container">
-  <!-- Sticky Header Bar -->
-  <header class="portal-header">
-    <div class="header-main">
-      <h1>{{ activeTab === 'catalog' ? 'Menu & Stock' : 'Bills & Status' }}</h1>
-      <div class="header-badges">
-        <span class="badge-pill">Shop: <strong>{{ shop }}</strong></span>
-        <span v-if="customerMobile" class="badge-pill">📱 {{ customerMobile }}</span>
-      </div>
-    </div>
-
-    <!-- Navigation Toggle Tabs -->
-    <nav class="nav-tabs">
-      <button 
-        type="button" 
-        :class="{ active: activeTab === 'catalog' }" 
-        @click="activeTab = 'catalog'"
-      >
-        🛍️ Menu & Stock
-      </button>
-      <button 
-        type="button" 
-        :class="{ active: activeTab === 'orders' }" 
-        @click="activeTab = 'orders'"
-      >
-        📋 Bills & Status
-        <span v-if="pendingCount > 0" class="tab-indicator"></span>
-      </button>
-    </nav>
-  </header>
-
-  <!-- TAB 1: CATALOG & LIVE STOCK -->
-  <main v-show="activeTab === 'catalog'" class="tab-pane">
-    <div v-if="loadingCatalog" class="loading-state">
-      <div class="spinner"></div>
-      <p>Loading live stock...</p>
-    </div>
-
-    <div v-else-if="catalogError" class="error-box">
-      <p>⚠️ {{ catalogError }}</p>
-      <button class="primary-btn" @click="fetchCatalog">Try Again</button>
-    </div>
-
-    <div v-else class="catalog-content">
-      <div v-if="products.length === 0" class="empty-box">
-        <p>No active products available for this shop.</p>
-        <button class="primary-btn" @click="fetchCatalog" style="margin-top: 10px;">Reload</button>
+  <div class="portal-container">
+    <!-- Sticky Header Bar -->
+    <header class="portal-header">
+      <div class="header-main">
+        <h1>{{ activeTab === 'catalog' ? 'Menu & Stock' : 'Bills & Status' }}</h1>
+        <div class="header-badges">
+          <span class="badge-pill">Shop: <strong>{{ shop || 'KINETIC POS' }}</strong></span>
+          <span v-if="customerMobile" class="badge-pill">📱 {{ customerMobile }}</span>
+        </div>
       </div>
 
-      <div class="products-grid">
-        <div 
-          v-for="product in products" 
-          :key="product.pid || product.id" 
-          class="product-card"
-          :class="{ 'disabled-card': Number(product.stock) <= 0 }"
+      <!-- Navigation Toggle Tabs -->
+      <nav class="nav-tabs">
+        <button 
+          type="button" 
+          :class="{ active: activeTab === 'catalog' }" 
+          @click="activeTab = 'catalog'"
         >
-          <div class="product-details">
-            <h3>{{ product.name }}</h3>
-            <p class="product-price">{{ Number(product.price || 0).toFixed(2) }} {{ currency }}</p>
-            <span class="stock-status" :class="Number(product.stock) > 0 ? 'stock-ok' : 'stock-empty'">
-              {{ Number(product.stock) > 0 ? `Stock: ${product.stock}` : 'Out of Stock' }}
-            </span>
-          </div>
+          🛍️ Menu & Stock
+        </button>
+        <button 
+          type="button" 
+          :class="{ active: activeTab === 'orders' }" 
+          @click="activeTab = 'orders'"
+        >
+          📋 Bills & Status
+          <span v-if="pendingCount > 0" class="tab-indicator"></span>
+        </button>
+      </nav>
+    </header>
 
-          <div class="product-actions" v-if="Number(product.stock) > 0">
-            <div class="counter-group">
-              <button @click="decrementCart(product)" :disabled="getCartQty(product) === 0">-</button>
-              <span>{{ getCartQty(product) }}</span>
-              <button @click="incrementCart(product)" :disabled="getCartQty(product) >= Number(product.stock)">+</button>
+    <!-- TAB 1: CATALOG & LIVE STOCK -->
+    <main v-show="activeTab === 'catalog'" class="tab-pane">
+      <div v-if="loadingCatalog" class="loading-state">
+        <div class="spinner"></div>
+        <p>Loading live stock...</p>
+      </div>
+
+      <div v-else-if="catalogError" class="error-box">
+        <p>⚠️ {{ catalogError }}</p>
+        <button class="primary-btn" @click="fetchCatalog">Try Again</button>
+      </div>
+
+      <div v-else class="catalog-content">
+        <div v-if="products.length === 0" class="empty-box">
+          <p>No active products available for this shop.</p>
+          <button class="primary-btn" @click="fetchCatalog" style="margin-top: 10px;">Reload</button>
+        </div>
+
+        <div class="products-grid">
+          <div 
+            v-for="product in products" 
+            :key="product.pid || product.id" 
+            class="product-card"
+            :class="{ 'disabled-card': Number(product.stock) <= 0 }"
+          >
+            <div class="product-details">
+              <h3>{{ product.name }}</h3>
+              <p class="product-price">{{ Number(product.price || 0).toFixed(2) }} {{ currency }}</p>
+              <span class="stock-status" :class="Number(product.stock) > 0 ? 'stock-ok' : 'stock-empty'">
+                {{ Number(product.stock) > 0 ? `Stock: ${product.stock}` : 'Out of Stock' }}
+              </span>
+            </div>
+
+            <div class="product-actions" v-if="Number(product.stock) > 0">
+              <div class="counter-group">
+                <button @click="decrementCart(product)" :disabled="getCartQty(product) === 0">-</button>
+                <span>{{ getCartQty(product) }}</span>
+                <button @click="incrementCart(product)" :disabled="getCartQty(product) >= Number(product.stock)">+</button>
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
 
-    <!-- Floating Checkout Cart Footer -->
-    <footer class="cart-floating-footer" v-if="cartItems.length > 0">
-      <div class="cart-info">
-        <span class="cart-count">{{ totalCartCount }} items selected</span>
-        <span class="cart-sum">Total: {{ cartTotal.toFixed(2) }} {{ currency }}</span>
+      <!-- Floating Checkout Cart Footer -->
+      <footer class="cart-floating-footer" v-if="cartItems.length > 0">
+        <div class="cart-info">
+          <span class="cart-count">{{ totalCartCount }} items selected</span>
+          <span class="cart-sum">Total: {{ cartTotal.toFixed(2) }} {{ currency }}</span>
+        </div>
+        <button class="checkout-btn" @click="placeOrder" :disabled="submittingOrder">
+          {{ submittingOrder ? 'Placing Order...' : 'Place Order 🚀' }}
+        </button>
+      </footer>
+    </main>
+
+    <!-- TAB 2: BILLS & ORDER STATUS -->
+    <main v-show="activeTab === 'orders'" class="tab-pane">
+      <div class="section-heading">
+        <h2>Order History & Status</h2>
+        <button class="refresh-action-btn" @click="fetchCustomerOrders" :disabled="loadingOrders">
+          🔄 Refresh
+        </button>
       </div>
-      <button class="checkout-btn" @click="placeOrder" :disabled="submittingOrder">
-        {{ submittingOrder ? 'Placing Order...' : 'Place Order 🚀' }}
-      </button>
-    </footer>
-  </main>
 
-  <!-- TAB 2: BILLS & ORDER STATUS -->
-  <main v-show="activeTab === 'orders'" class="tab-pane">
-    <div class="section-heading">
-      <h2>Order History & Status</h2>
-      <button class="refresh-action-btn" @click="fetchCustomerOrders" :disabled="loadingOrders">
-        🔄 Refresh
-      </button>
-    </div>
+      <div v-if="loadingOrders" class="loading-state">
+        <div class="spinner"></div>
+        <p>Syncing your bills...</p>
+      </div>
 
-    <div v-if="loadingOrders" class="loading-state">
-      <div class="spinner"></div>
-      <p>Syncing your bills...</p>
-    </div>
+      <div v-else-if="ordersError" class="error-box">
+        <p>⚠️ {{ ordersError }}</p>
+        <button class="primary-btn" @click="fetchCustomerOrders">Try Again</button>
+      </div>
 
-    <div v-else-if="ordersError" class="error-box">
-      <p>⚠️ {{ ordersError }}</p>
-      <button class="primary-btn" @click="fetchCustomerOrders">Try Again</button>
-    </div>
+      <div v-else class="orders-container">
+        <!-- PENDING BILLS -->
+        <section class="order-group">
+          <div class="group-title">
+            <h3>Pending Review</h3>
+            <span class="count-pill pending-pill">{{ pendingOrders.length }}</span>
+          </div>
 
-    <div v-else class="orders-container">
-      <!-- PENDING BILLS -->
-      <section class="order-group">
-        <div class="group-title">
-          <h3>Pending Review</h3>
-          <span class="count-pill pending-pill">{{ pendingOrders.length }}</span>
-        </div>
+          <div v-if="pendingOrders.length === 0" class="empty-box small">
+            <p>No active pending bills.</p>
+          </div>
 
-        <div v-if="pendingOrders.length === 0" class="empty-box small">
-          <p>No active pending bills.</p>
-        </div>
-
-        <div class="orders-list">
-          <article 
-            v-for="order in pendingOrders" 
-            :key="order.id || order.billnum" 
-            class="order-item-card border-pending"
-            @click="toggleExpand(order.id)"
-          >
-            <div class="order-row-top">
-              <span class="bill-number">Bill #{{ order.billnum }}</span>
-              <span class="status-pill pending">Pending</span>
-            </div>
-            <div class="order-row-bottom">
-              <span class="order-timestamp">{{ formatDate(order.date) }}</span>
-              <span class="order-amount">{{ Number(order.total).toFixed(2) }} {{ order.currency || currency }}</span>
-            </div>
-
-            <!-- Expanded Order Line Items & Financial Breakdown -->
-            <div class="order-details-drawer" v-if="expandedId === order.id" @click.stop>
-              <div class="drawer-header">
-                <span>Item</span>
-                <span>Qty</span>
-                <span>Subtotal</span>
+          <div class="orders-list">
+            <article 
+              v-for="order in pendingOrders" 
+              :key="order.id || order.billnum" 
+              class="order-item-card border-pending"
+              @click="toggleExpand(order.id)"
+            >
+              <div class="order-row-top">
+                <span class="bill-number">Bill #{{ order.billnum }}</span>
+                <span class="status-pill pending">Pending</span>
               </div>
-              <div v-for="(item, idx) in order.items" :key="idx" class="drawer-row">
-                <span class="item-title-col">{{ item.name }}</span>
-                <span class="item-qty-col">{{ item.qty }}</span>
-                <span class="item-price-col">{{ (item.price * item.qty).toFixed(2) }}</span>
+              <div class="order-row-bottom">
+                <span class="order-timestamp">{{ formatDate(order.date) }}</span>
+                <span class="order-amount">{{ Number(order.total).toFixed(2) }} {{ order.currency || currency }}</span>
               </div>
 
-              <!-- Financial Breakdown Panel -->
-              <div class="bill-breakdown-box">
-                <div class="breakdown-row">
-                  <span>Items Subtotal:</span>
-                  <span>{{ order.subtotal.toFixed(2) }}</span>
+              <!-- Expanded Order Line Items & Financial Breakdown -->
+              <div class="order-details-drawer" v-if="expandedId === order.id" @click.stop>
+                <div class="drawer-header">
+                  <span>Item</span>
+                  <span>Qty</span>
+                  <span>Subtotal</span>
                 </div>
-                <div v-if="order.sc > 0" class="breakdown-row charge">
-                  <span>Service Charge ({{ order.sc }}%):</span>
-                  <span>+ {{ order.chargeAmount.toFixed(2) }}</span>
+                <div v-for="(item, idx) in order.items" :key="idx" class="drawer-row">
+                  <span class="item-title-col">{{ item.name }}</span>
+                  <span class="item-qty-col">{{ item.qty }}</span>
+                  <span class="item-price-col">{{ (item.price * item.qty).toFixed(2) }}</span>
                 </div>
-                <div v-if="order.rc > 0" class="breakdown-row discount">
-                  <span>Discount / Reduction ({{ order.rc }}%):</span>
-                  <span>- {{ order.reduceAmount.toFixed(2) }}</span>
-                </div>
-                <div class="breakdown-row final-total">
-                  <span>Final Total:</span>
-                  <span>{{ order.total.toFixed(2) }} {{ order.currency || currency }}</span>
-                </div>
-                <div class="handled-by-info">
-                  <span>Handler: {{ order.staffName }}</span>
+
+                <!-- Financial Breakdown Panel -->
+                <div class="bill-breakdown-box">
+                  <div class="breakdown-row">
+                    <span>Items Subtotal:</span>
+                    <span>{{ order.subtotal.toFixed(2) }}</span>
+                  </div>
+                  <div v-if="order.sc > 0" class="breakdown-row charge">
+                    <span>Service Charge ({{ order.sc }}%):</span>
+                    <span>+ {{ order.chargeAmount.toFixed(2) }}</span>
+                  </div>
+                  <div v-if="order.rc > 0" class="breakdown-row discount">
+                    <span>Discount / Reduction ({{ order.rc }}%):</span>
+                    <span>- {{ order.reduceAmount.toFixed(2) }}</span>
+                  </div>
+                  <div class="breakdown-row final-total">
+                    <span>Final Total:</span>
+                    <span>{{ order.total.toFixed(2) }} {{ order.currency || currency }}</span>
+                  </div>
+                  <div class="handled-by-info">
+                    <span>Handler: {{ order.staffName }}</span>
+                  </div>
                 </div>
               </div>
-            </div>
-          </article>
-        </div>
-      </section>
+            </article>
+          </div>
+        </section>
 
-      <!-- PAST BILLS -->
-      <section class="order-group">
-        <div class="group-title">
-          <h3>Past Bills & Updates</h3>
-          <span class="count-pill history-pill">{{ pastOrders.length }}</span>
-        </div>
+        <!-- PAST BILLS -->
+        <section class="order-group">
+          <div class="group-title">
+            <h3>Past Bills & Updates</h3>
+            <span class="count-pill history-pill">{{ pastOrders.length }}</span>
+          </div>
 
-        <div v-if="pastOrders.length === 0" class="empty-box small">
-          <p>No past order history found.</p>
-        </div>
+          <div v-if="pastOrders.length === 0" class="empty-box small">
+            <p>No past order history found.</p>
+          </div>
 
-        <div class="orders-list">
-          <article 
-            v-for="order in pastOrders" 
-            :key="order.id || order.billnum" 
-            class="order-item-card"
-            :class="getCardBorderClass(order.status)"
-            @click="toggleExpand(order.id)"
-          >
-            <div class="order-row-top">
-              <span class="bill-number">Bill #{{ order.billnum }}</span>
-              <span class="status-pill" :class="order.status">{{ order.status }}</span>
-            </div>
-            <div class="order-row-bottom">
-              <span class="order-timestamp">{{ formatDate(order.date) }}</span>
-              <span class="order-amount">{{ Number(order.total).toFixed(2) }} {{ order.currency || currency }}</span>
-            </div>
-
-            <!-- Expanded Order Line Items & Financial Breakdown -->
-            <div class="order-details-drawer" v-if="expandedId === order.id" @click.stop>
-              <div class="drawer-header">
-                <span>Item</span>
-                <span>Qty</span>
-                <span>Subtotal</span>
+          <div class="orders-list">
+            <article 
+              v-for="order in pastOrders" 
+              :key="order.id || order.billnum" 
+              class="order-item-card"
+              :class="getCardBorderClass(order.status)"
+              @click="toggleExpand(order.id)"
+            >
+              <div class="order-row-top">
+                <span class="bill-number">Bill #{{ order.billnum }}</span>
+                <span class="status-pill" :class="order.status">{{ order.status }}</span>
               </div>
-              <div v-for="(item, idx) in order.items" :key="idx" class="drawer-row">
-                <span class="item-title-col">{{ item.name }}</span>
-                <span class="item-qty-col">{{ item.qty }}</span>
-                <span class="item-price-col">{{ (item.price * item.qty).toFixed(2) }}</span>
+              <div class="order-row-bottom">
+                <span class="order-timestamp">{{ formatDate(order.date) }}</span>
+                <span class="order-amount">{{ Number(order.total).toFixed(2) }} {{ order.currency || currency }}</span>
               </div>
 
-              <!-- Financial Breakdown Panel -->
-              <div class="bill-breakdown-box">
-                <div class="breakdown-row">
-                  <span>Items Subtotal:</span>
-                  <span>{{ order.subtotal.toFixed(2) }}</span>
+              <!-- Expanded Order Line Items & Financial Breakdown -->
+              <div class="order-details-drawer" v-if="expandedId === order.id" @click.stop>
+                <div class="drawer-header">
+                  <span>Item</span>
+                  <span>Qty</span>
+                  <span>Subtotal</span>
                 </div>
-                <div v-if="order.sc > 0" class="breakdown-row charge">
-                  <span>Service Charge ({{ order.sc }}%):</span>
-                  <span>+ {{ order.chargeAmount.toFixed(2) }}</span>
+                <div v-for="(item, idx) in order.items" :key="idx" class="drawer-row">
+                  <span class="item-title-col">{{ item.name }}</span>
+                  <span class="item-qty-col">{{ item.qty }}</span>
+                  <span class="item-price-col">{{ (item.price * item.qty).toFixed(2) }}</span>
                 </div>
-                <div v-if="order.rc > 0" class="breakdown-row discount">
-                  <span>Discount / Reduction ({{ order.rc }}%):</span>
-                  <span>- {{ order.reduceAmount.toFixed(2) }}</span>
-                </div>
-                <div class="breakdown-row final-total">
-                  <span>Final Total:</span>
-                  <span>{{ order.total.toFixed(2) }} {{ order.currency || currency }}</span>
-                </div>
-                <div class="handled-by-info">
-                  <span>Handler: {{ order.staffName }}</span>
+
+                <!-- Financial Breakdown Panel -->
+                <div class="bill-breakdown-box">
+                  <div class="breakdown-row">
+                    <span>Items Subtotal:</span>
+                    <span>{{ order.subtotal.toFixed(2) }}</span>
+                  </div>
+                  <div v-if="order.sc > 0" class="breakdown-row charge">
+                    <span>Service Charge ({{ order.sc }}%):</span>
+                    <span>+ {{ order.chargeAmount.toFixed(2) }}</span>
+                  </div>
+                  <div v-if="order.rc > 0" class="breakdown-row discount">
+                    <span>Discount / Reduction ({{ order.rc }}%):</span>
+                    <span>- {{ order.reduceAmount.toFixed(2) }}</span>
+                  </div>
+                  <div class="breakdown-row final-total">
+                    <span>Final Total:</span>
+                    <span>{{ order.total.toFixed(2) }} {{ order.currency || currency }}</span>
+                  </div>
+                  <div class="handled-by-info">
+                    <span>Handler: {{ order.staffName }}</span>
+                  </div>
                 </div>
               </div>
-            </div>
-          </article>
-        </div>
-      </section>
-    </div>
-  </main>
-</div>
+            </article>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
 </template>
 
 <script setup>
@@ -256,8 +256,9 @@ const shopId = computed(() => route.params.shopId || sessionStorage.getItem('sho
 const clientUid = sessionStorage.getItem('userToken');
 
 const activeTab = ref('catalog');
-const currency = ref('');
+const currency = ref('LKR');
 const customerMobile = ref('');
+const shop = ref('');
 
 // Catalog data
 const products = ref([]);
@@ -271,8 +272,7 @@ const rawOrders = ref([]);
 const loadingOrders = ref(true);
 const ordersError = ref('');
 const expandedId = ref(null);
-//shop data
-const shop=ref('')
+
 const formatDate = (iso) => {
   if (!iso) return '';
   return new Date(iso).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
@@ -320,7 +320,6 @@ const cartItems = computed(() => {
   return Object.keys(cart.value).map(cartKey => {
     const product = products.value.find(p => String(p.pid || p.id) === String(cartKey));
     const resolvedPid = product ? (product.pid || product.id) : cartKey;
-    
     return {
       pid: resolvedPid,
       name: product ? product.name : 'Item',
@@ -357,13 +356,18 @@ async function fetchCatalog() {
       const errText = await res.text();
       throw new Error(errText || 'Failed to load stock.');
     }
-    
+
     const data = await res.json();
-    products.value = Array.isArray(data) ? data : (data.products || []);
-    shop.value=products.shopName
-    if (products.value.length > 0 && products.value[0].currency) {
-      currency.value = products.value[0].currency;
+
+    // Properly unpack the updated backend object response format
+    if (Array.isArray(data)) {
+      products.value = data;
+    } else {
+      products.value = data.items || [];
+      shop.value = data.shopName || '';
+      if (data.currency) currency.value = data.currency;
     }
+
   } catch (err) {
     catalogError.value = err.message;
     products.value = [];
@@ -814,7 +818,6 @@ onMounted(() => {
 .item-qty-col { width: 25px; text-align: center; font-weight: 600; }
 .item-price-col { width: 50px; text-align: right; font-weight: 600; }
 
-/* Financial breakdown styles */
 .bill-breakdown-box {
   margin-top: 6px;
   background: #f8fafc;
@@ -833,13 +836,8 @@ onMounted(() => {
   color: #475569;
 }
 
-.breakdown-row.charge {
-  color: #0369a1;
-}
-
-.breakdown-row.discount {
-  color: #15803d;
-}
+.breakdown-row.charge { color: #0369a1; }
+.breakdown-row.discount { color: #15803d; }
 
 .breakdown-row.final-total {
   font-weight: 700;
