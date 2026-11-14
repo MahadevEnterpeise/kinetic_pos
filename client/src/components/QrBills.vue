@@ -1,114 +1,113 @@
 <template>
-<div class="client-wrapper" v-if="!billshow">
+  <div class="client-wrapper" v-if="!billshow">
+    <!-- LEFT PANE: PENDING LIST -->
+    <div class="pending-pane">
+      <div class="head">
+        <span>Pending Orders</span>
+        <button @click="fetchPendingOrders()">Fetch</button>
+      </div>
 
-<!-- LEFT PANE: PENDING LIST -->
-<div class="pending-pane">
-<div class="head">
-Pending Orders <button @click="fetchPendingOrders()">Fetch</button>
-</div>
+      <div class="pending-list">
+        <div v-if="loading" class="empty">Loading...</div>
+        <div v-else-if="pendingOrders.length === 0" class="empty">
+          <span class="empty-icon">📭</span>
+          <p>No pending orders</p>
+        </div>
 
-<div class="pending-list">
-<div v-if="loading" class="empty">Loading...</div>
-<div v-else-if="pendingOrders.length === 0" class="empty">
-<span class="empty-icon">📭</span>
-<p>No pending orders</p>
-</div>
+        <div
+          v-for="o in pendingOrders"
+          :key="o.id"
+          class="pending-card"
+          :class="{ active: selectedOrder?.id === o.id }"
+          @click="loadPending(o)"
+        >
+          <div class="card-top-row">
+            <span class="order-id">#{{ o.id }}</span>
+            <span class="order-total">{{ Number(o.total || 0).toFixed(2) }} {{ currency }}</span>
+          </div>
 
-<div
-v-for="o in pendingOrders"
-:key="o.id"
-class="pending-card"
-:class="{ active: selectedOrder?.id === o.id }"
-@click="loadPending(o)"
->
-<div class="card-top-row">
-<span class="order-id">#{{ o.id }}</span>
-<span class="order-total">{{ Number(o.total || 0).toFixed(2) }} {{ currency }}</span>
-</div>
+          <div class="card-mid-row">
+            <span class="customer-name">{{ o.customer || 'Walk-in Customer' }}</span>
+          </div>
 
-<div class="card-mid-row">
-<span class="customer-name">{{ o.customer || 'Walk-in Customer' }}</span>
-</div>
+          <div class="card-bot-row">
+            <span class="muted">{{ o.items ? o.items.length : 0 }} items</span>
+            <span class="muted">{{ formatDate(o.date) }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
 
-<div class="card-bot-row">
-<span class="muted">{{ o.items ? o.items.length : 0 }} items</span>
-<span class="muted">{{ formatDate(o.date) }}</span>
-</div>
-</div>
-</div>
-</div>
+    <!-- RIGHT PANE: BILL SECTOR -->
+    <div class="client-bill">
+      <div class="bill-header">
+        <h1 id="h1">Bill #{{ selectedOrder?.id || '--' }}</h1>
+      </div>
 
-<!-- RIGHT PANE: BILL SECTOR -->
-<div class="client-bill">
-<div class="bill-header">
-<h1 id="h1">Bill #{{ selectedOrder?.id || '--' }}</h1>
-</div>
+      <div class="heads">
+        <h3 id="n">Name</h3>
+        <h3 id="q">Qty</h3>
+        <h3 id="p">Price</h3>
+      </div>
 
-<div class="heads">
-<h3 id="n">Name</h3>
-<h3 id="q">Qty</h3>
-<h3 id="p">Price</h3>
-</div>
+      <div class="bills">
+        <div v-if="selectedItems.length === 0" class="empty">
+          <span class="empty-icon">🧾</span>
+          <p>Select a pending order</p>
+        </div>
 
-<div class="bills">
-<div v-if="selectedItems.length === 0" class="empty">
-<span class="empty-icon">🧾</span>
-<p>Select a pending order</p>
-</div>
+        <div 
+          class="bdata" 
+          v-for="i in selectedItems" 
+          :key="i.id" 
+          @click="remove(i.id)" 
+          title="Click to remove item"
+        >
+          <p class="n">{{ i.name }}</p>
+          <p class="q">{{ i.qty }}</p>
+          <p class="p">{{ Number((i.price) || 0).toFixed(2) }}</p>
+        </div>
+      </div>
 
-<div 
-class="bdata" 
-v-for="i in selectedItems" 
-:key="i.id" 
-@click="remove(i.id)" 
-title="Click to remove item"
->
-<p class="n">{{ i.name }}</p>
-<p class="q">{{ i.qty }}</p>
-<p class="p">{{ Number((i.price) || 0).toFixed(2) }}</p>
-</div>
-</div>
+      <div class="last">
+        <!-- Showable Order Type & Payment Type -->
+        <div class="calc-row read-only-row" v-if="selectedOrder">
+          <span>Order Type</span>
+          <span class="badge-text">{{ (selectedOrder.orderType || 'Takeaway').toUpperCase() }}</span>
+        </div>
 
-<div class="last">
-<!-- Showable Order Type & Payment Type -->
-<div class="calc-row read-only-row" v-if="selectedOrder">
-<span>Order Type</span>
-<span class="badge-text">{{ (selectedOrder.orderType || 'Takeaway').toUpperCase() }}</span>
-</div>
+        <div class="calc-row read-only-row" v-if="selectedOrder">
+          <span>Payment Type</span>
+          <span class="badge-text">{{ (selectedOrder.paymentType || 'Cash').toUpperCase() }}</span>
+        </div>
 
-<div class="calc-row read-only-row" v-if="selectedOrder">
-<span>Payment Type</span>
-<span class="badge-text">{{ (selectedOrder.paymentType || 'Cash').toUpperCase() }}</span>
-</div>
+        <span id="subtotal">
+          <p>Sub Total</p>
+          <p>{{ Number(subtotal || 0).toFixed(2) }} {{ currency }}</p>
+        </span>
 
-<span id="subtotal">
-<p>Sub Total</p>
-<p>{{ Number(subtotal || 0).toFixed(2) }} {{ currency }}</p>
-</span>
+        <span id="service" class="input-span">
+          <p>Service charge %</p>
+          <input type="number" v-model.number="sc" min="0" />
+        </span>
 
-<span id="service" class="input-span">
-<p>Service charge %</p>
-<input type="number" v-model.number="sc" min="0" />
-</span>
+        <span id="discount" class="input-span">
+          <p>Discount %</p>
+          <input type="number" v-model.number="rc" min="0" />
+        </span>
 
-<span id="discount" class="input-span">
-<p>Discount %</p>
-<input type="number" v-model.number="rc" min="0" />
-</span>
+        <span id="total" class="total-span">
+          <p>Total</p>
+          <p>{{ Number(total || 0).toFixed(2) }} {{ currency }}</p>
+        </span>
 
-<span id="total" class="total-span">
-<p>Total</p>
-<p>{{ Number(total || 0).toFixed(2) }} {{ currency }}</p>
-</span>
-
-<div class="action-buttons">
-<button class="reject-btn" @click="reject" :disabled="saving">Reject</button>
-<button class="pay-btn" @click="bill" :disabled="saving">{{ buttonText }}</button>
-</div>
-</div>
-</div>
-
-</div>
+        <div class="action-buttons">
+          <button class="reject-btn" @click="reject" :disabled="saving">Reject</button>
+          <button class="pay-btn" @click="bill" :disabled="saving">{{ buttonText }}</button>
+        </div>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup>
@@ -134,427 +133,427 @@ const billshow = ref(false);
 const saving = ref(false);
 
 const shopProfile = ref({
-shop_name: 'KINETIC POS',
-s_mobile: '',
-s_address: ''
+  shop_name: 'KINETIC POS',
+  s_mobile: '',
+  s_address: ''
 });
 
 const subtotal = computed(() => {
-return selectedItems.value.reduce((sum, item) => sum + (item.price * item.qty), 0);
+  return selectedItems.value.reduce((sum, item) => sum + (item.price * item.qty), 0);
 });
 
 const total = computed(() => {
-const chargeAmount = (subtotal.value * sc.value) / 100;
-let stotal = subtotal.value + chargeAmount;
-const reduce = (stotal * rc.value) / 100;
-return Math.max(0, stotal - reduce);
+  const chargeAmount = (subtotal.value * sc.value) / 100;
+  let stotal = subtotal.value + chargeAmount;
+  const reduce = (stotal * rc.value) / 100;
+  return Math.max(0, stotal - reduce);
 });
 
 const formatDate = (iso) => {
-if (!iso) return '';
-return new Date(iso).toLocaleDateString('en-CA');
+  if (!iso) return '';
+  return new Date(iso).toLocaleDateString('en-CA');
 };
 
 function remove(rid) {
-selectedItems.value = selectedItems.value.filter(item => item.id !== rid);
+  selectedItems.value = selectedItems.value.filter(item => item.id !== rid);
 }
 
 function loadPending(o) {
-selectedOrder.value = o;
-selectedItems.value = (o.items || []).map(it => {
-const qty = Number(it.qty) || 1;
-let rawPrice = Number(it.price) || 0;
+  selectedOrder.value = o;
+  selectedItems.value = (o.items || []).map(it => {
+    const qty = Number(it.qty) || 1;
+    let rawPrice = Number(it.price) || 0;
+    const unitPrice = (qty > 1 && rawPrice > 1000) ? (rawPrice / qty) : rawPrice;
 
-const unitPrice = (qty > 1 && rawPrice > 1000) ? (rawPrice / qty) : rawPrice;
-
-return {
-id: it.itemid || it.id,
-name: it.name,
-qty: qty,
-price: unitPrice 
-};
-});
-sc.value = o.servicePct || o.sc || 0;
-rc.value = o.discount || o.rc || 0;
+    return {
+      id: it.itemid || it.id,
+      name: it.name,
+      qty: qty,
+      price: unitPrice 
+    };
+  });
+  sc.value = o.servicePct || o.sc || 0;
+  rc.value = o.discount || o.rc || 0;
 }
 
 // --- REJECT ACTION ---
 async function reject() {
-if (!selectedOrder.value) return;
-saving.value = true;
-const targetId = selectedOrder.value.id;
-const payload = { 
-status: 'cancelled',
-billNum: targetId,
-sc: Number(sc.value) || 0,
-rc: Number(rc.value) || 0
-};
+  if (!selectedOrder.value) return;
+  saving.value = true;
+  const targetId = selectedOrder.value.id;
+  const payload = { 
+    status: 'cancelled',
+    billNum: targetId,
+    sc: Number(sc.value) || 0,
+    rc: Number(rc.value) || 0
+  };
 
-try {
-const response = await fetch(`${link}/orders/${targetId}`, {
-method: 'PATCH',
-headers: { 
-'Authorization': `Bearer ${Token}`, 
-'Content-Type': 'application/json', 
-'shop-id': shopId,
-'client-uid': clientUid
-},
-body: JSON.stringify(payload)
-});
+  try {
+    const response = await fetch(`${link}/orders/${targetId}`, {
+      method: 'PATCH',
+      headers: { 
+        'Authorization': `Bearer ${Token}`, 
+        'Content-Type': 'application/json', 
+        'shop-id': shopId,
+        'client-uid': clientUid
+      },
+      body: JSON.stringify(payload)
+    });
 
-if (!response.ok) throw new Error('Failed to reject order on server');
+    if (!response.ok) throw new Error('Failed to reject order on server');
 
-pendingOrders.value = pendingOrders.value.filter(item => item.id !== targetId);
-selectedOrder.value = null;
-selectedItems.value = [];
-eventBus.triggerRefresh();
-} catch (err) {
-console.error("Reject failed:", err);
-alert("Could not reject order.");
-} finally {
-saving.value = false;
-}
+    pendingOrders.value = pendingOrders.value.filter(item => item.id !== targetId);
+    selectedOrder.value = null;
+    selectedItems.value = [];
+    eventBus.triggerRefresh();
+  } catch (err) {
+    console.error("Reject failed:", err);
+    alert("Could not reject order.");
+  } finally {
+    saving.value = false;
+  }
 }
 
 // --- ACCEPT / SAVE & PAY ACTION ---
 async function bill() {
-if (!selectedOrder.value) {
-alert('Please select a pending order first');
-return;
-}
-if (selectedItems.value.length === 0) {
-alert('Cart is empty');
-return;
-}
-if (saving.value) return;
+  if (!selectedOrder.value) {
+    alert('Please select a pending order first');
+    return;
+  }
+  if (selectedItems.value.length === 0) {
+    alert('Cart is empty');
+    return;
+  }
+  if (saving.value) return;
 
-saving.value = true;
-buttonText.value = 'Saving...';
-const targetId = selectedOrder.value.id;
+  saving.value = true;
+  buttonText.value = 'Saving...';
+  const targetId = selectedOrder.value.id;
 
-const payload = {
-id: targetId,
-billNum: targetId,
-status: 'paid',
-clientUid: clientUid,
-sc: Number(sc.value) || 0,
-rc: Number(rc.value) || 0,
-orderType: selectedOrder.value.orderType || 'takeaway',
-paymentType: selectedOrder.value.paymentType || 'cash',
-items: selectedItems.value.map(i => ({
-pid: i.id || i.itemid,
-id: i.id || i.itemid,
-name: i.name,
-qty: i.qty,
-price: Number(i.price) * Number(i.qty)
-})),
-rcvalue: Number(rc.value),
-scvalue: Number(sc.value),
-stotal: Number(subtotal.value),
-total: Number(total.value),
-currency: String(currency.value),
-staffName: 'Cashier'
-};
+  const payload = {
+    id: targetId,
+    billNum: targetId,
+    status: 'paid',
+    clientUid: clientUid,
+    sc: Number(sc.value) || 0,
+    rc: Number(rc.value) || 0,
+    orderType: selectedOrder.value.orderType || 'takeaway',
+    paymentType: selectedOrder.value.paymentType || 'cash',
+    items: selectedItems.value.map(i => ({
+      pid: i.id || i.itemid,
+      id: i.id || i.itemid,
+      name: i.name,
+      qty: i.qty,
+      price: Number(i.price) * Number(i.qty)
+    })),
+    rcvalue: Number(rc.value),
+    scvalue: Number(sc.value),
+    stotal: Number(subtotal.value),
+    total: Number(total.value),
+    currency: String(currency.value),
+    staffName: 'Cashier'
+  };
 
-try {
-let finalBillNum = targetId;
+  try {
+    let finalBillNum = targetId;
 
-const res = await fetch(`${link}/orders/${targetId}`, {
-method: 'PATCH',
-headers: {
-'Authorization': `Bearer ${Token}`,
-'Content-Type': 'application/json',
-'shop-id': shopId,
-'client-uid': clientUid
-},
-body: JSON.stringify(payload)
-});
+    const res = await fetch(`${link}/orders/${targetId}`, {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `Bearer ${Token}`,
+        'Content-Type': 'application/json',
+        'shop-id': shopId,
+        'client-uid': clientUid
+      },
+      body: JSON.stringify(payload)
+    });
 
-if (!res.ok) {
-const errData = await res.json().catch(() => ({}));
-throw new Error(errData.error || `Save failed: ${res.status}`);
-}
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || `Save failed: ${res.status}`);
+    }
 
-const result = await res.json().catch(() => ({}));
-if (result.billnum || result.id) finalBillNum = result.billnum || result.id;
-if (result.shopname || result.shop_name) shopProfile.value.shop_name = result.shopname || result.shop_name;
-if (result.s_mobile || result.mobile) shopProfile.value.s_mobile = result.s_mobile || result.mobile;
-if (result.s_address || result.address) shopProfile.value.s_address = result.s_address || result.address;
+    const result = await res.json().catch(() => ({}));
+    if (result.billnum || result.id) finalBillNum = result.billnum || result.id;
+    if (result.shopname || result.shop_name) shopProfile.value.shop_name = result.shopname || result.shop_name;
+    if (result.s_mobile || result.mobile) shopProfile.value.s_mobile = result.s_mobile || result.mobile;
+    if (result.s_address || result.address) shopProfile.value.s_address = result.s_address || result.address;
 
-// 1. Print KOT first
-const kotPayload = {
-arrays: JSON.parse(JSON.stringify(selectedItems.value.map(i => ({ ...i, price: i.price * i.qty })))),
-billnum: finalBillNum,
-orderType: (selectedOrder.value.orderType || 'takeaway').toUpperCase(),
-paymentType: (selectedOrder.value.paymentType || 'cash').toUpperCase(),
-date: new Date().toLocaleDateString(),
-time: new Date().toLocaleTimeString(),
-shopname: shopProfile.value.shop_name,
-s_mobile: shopProfile.value.s_mobile,
-s_address: shopProfile.value.s_address
-};
-await printReceipt(kotPayload);
+    // 1. Print KOT first
+    const kotPayload = {
+      arrays: JSON.parse(JSON.stringify(selectedItems.value.map(i => ({ ...i, price: i.price * i.qty })))),
+      billnum: finalBillNum,
+      orderType: (selectedOrder.value.orderType || 'takeaway').toUpperCase(),
+      paymentType: (selectedOrder.value.paymentType || 'cash').toUpperCase(),
+      date: new Date().toLocaleDateString(),
+      time: new Date().toLocaleTimeString(),
+      shopname: shopProfile.value.shop_name,
+      s_mobile: shopProfile.value.s_mobile,
+      s_address: shopProfile.value.s_address
+    };
+    await printReceipt(kotPayload);
 
-// Brief pause between printing KOT and Customer Bill
-await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise(resolve => setTimeout(resolve, 1000));
 
-// 2. Print Customer Bill
-const printPayload = {
-arrays: JSON.parse(JSON.stringify(selectedItems.value.map(i => ({ ...i, price: i.price * i.qty })))),
-rcvalue: Number(rc.value),
-scvalue: Number(sc.value),
-stotal: Number(subtotal.value),
-total: Number(total.value),
-billnum: finalBillNum,
-currency: currency.value,
-shopname: shopProfile.value.shop_name,
-s_mobile: shopProfile.value.s_mobile,
-s_address: shopProfile.value.s_address,
-orderType: selectedOrder.value.orderType || 'takeaway',
-paymentType: selectedOrder.value.paymentType || 'cash',
-date: new Date().toLocaleDateString(),
-time: new Date().toLocaleTimeString()
-};
+    // 2. Print Customer Bill
+    const printPayload = {
+      arrays: JSON.parse(JSON.stringify(selectedItems.value.map(i => ({ ...i, price: i.price * i.qty })))),
+      rcvalue: Number(rc.value),
+      scvalue: Number(sc.value),
+      stotal: Number(subtotal.value),
+      total: Number(total.value),
+      billnum: finalBillNum,
+      currency: currency.value,
+      shopname: shopProfile.value.shop_name,
+      s_mobile: shopProfile.value.s_mobile,
+      s_address: shopProfile.value.s_address,
+      orderType: selectedOrder.value.orderType || 'takeaway',
+      paymentType: selectedOrder.value.paymentType || 'cash',
+      date: new Date().toLocaleDateString(),
+      time: new Date().toLocaleTimeString()
+    };
 
-const printResult = await printReceipt(printPayload);
-if (!printResult.success) {
-console.warn('Printer note:', printResult.error);
-}
+    const printResult = await printReceipt(printPayload);
+    if (!printResult.success) {
+      console.warn('Printer note:', printResult.error);
+    }
 
-pendingOrders.value = pendingOrders.value.filter(o => o.id !== targetId);
-selectedOrder.value = null;
-selectedItems.value = [];
-rc.value = 0;
-sc.value = 0;
+    pendingOrders.value = pendingOrders.value.filter(o => o.id !== targetId);
+    selectedOrder.value = null;
+    selectedItems.value = [];
+    rc.value = 0;
+    sc.value = 0;
 
-eventBus.triggerRefresh();
-} catch (err) {
-console.error("Bill save failed:", err);
-alert(err.message || "Could not save bill.");
-} finally {
-saving.value = false;
-buttonText.value = 'Save & Pay';
-}
+    eventBus.triggerRefresh();
+  } catch (err) {
+    console.error("Bill save failed:", err);
+    alert(err.message || "Could not save bill.");
+  } finally {
+    saving.value = false;
+    buttonText.value = 'Save & Pay';
+  }
 }
 
 async function fetchPendingOrders() {
-loading.value = true;
-try {
-const res = await fetch(`${link}/pendingorders`, {
-headers: { 'Authorization': `Bearer ${Token}`, 'shop-id': shopId, 'client-uid': clientUid }
-});
-if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
-const serverData = await res.json();
-pendingOrders.value = serverData;
-if (serverData.length > 0) currency.value = serverData[0].currency || 'LKR';
-} catch (err) {
-console.error("Failed to fetch pending orders:", err);
-pendingOrders.value = [];
-} finally {
-loading.value = false;
-}
+  loading.value = true;
+  try {
+    const res = await fetch(`${link}/pendingorders`, {
+      headers: { 'Authorization': `Bearer ${Token}`, 'shop-id': shopId, 'client-uid': clientUid }
+    });
+    if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
+    const serverData = await res.json();
+    pendingOrders.value = serverData;
+    if (serverData.length > 0) currency.value = serverData[0].currency || 'LKR';
+  } catch (err) {
+    console.error("Failed to fetch pending orders:", err);
+    pendingOrders.value = [];
+  } finally {
+    loading.value = false;
+  }
 }
 
 onMounted(async () => {
-if (!Token) {
-indexedDB.deleteDatabase('KineticPOS_Local');
-sessionStorage.clear();
-router.push('/');
-return;
-}
+  if (!Token) {
+    indexedDB.deleteDatabase('KineticPOS_Local');
+    sessionStorage.clear();
+    router.push('/');
+    return;
+  }
 
-if (eventBus && typeof eventBus.on === 'function') {
-eventBus.on('refresh', async () => {
-await fetchPendingOrders();
-});
-}
+  if (eventBus && typeof eventBus.on === 'function') {
+    eventBus.on('refresh', async () => {
+      await fetchPendingOrders();
+    });
+  }
 
-await fetchPendingOrders();
+  await fetchPendingOrders();
 });
 
-onUnmounted(() => {
-// Cleanup listeners if needed
-});
+onUnmounted(() => {});
 </script>
 
 <style scoped>
 html, body {
-margin: 0;
-padding: 0;
-height: 100vh;
-background-color: #f0f8ff;
-overflow: hidden;
+  margin: 0;
+  padding: 0;
+  height: 100vh;
+  background-color: #f0f8ff;
+  overflow: hidden;
 }
 
 .client-wrapper {
-width: 100vw;
-display: flex;
-flex-direction: row;
-align-items: stretch;
-justify-content: center;
-height: 100vh;
-overflow: hidden;
-background-color: #f0f8ff;
-box-sizing: border-box;
+  width: 100vw;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  justify-content: center;
+  height: 100vh;
+  overflow: hidden;
+  background-color: #f0f8ff;
+  box-sizing: border-box;
 }
 
 .pending-pane {
-width: 50%;
-background: #ffffff;
-border-right: 1px solid #e2e8f0;
-display: flex;
-flex-direction: column;
-min-height: 0;
-box-sizing: border-box;
+  width: 52%;
+  background: #ffffff;
+  border-right: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  box-sizing: border-box;
 }
 
 .head {
-padding: 18px 20px;
-background: #041528;
-color: white;
-flex-shrink: 0;
-font-size: 1.15rem;
-font-weight: 600;
-letter-spacing: 0.3px;
-display: flex;
-justify-content: space-between;
-align-items: center;
+  padding: 18px 20px;
+  background: #041528;
+  color: white;
+  flex-shrink: 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .pending-list {
-flex: 1;
-min-height: 0;
-overflow-y: auto;
-padding: 15px;
-display: flex;
-flex-direction: column;
-gap: 12px;
-background-color: #f8fafc;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background-color: #f8fafc;
 }
 
 .pending-card {
-background: #ffffff;
-border: 1px solid #cbd5e1;
-border-radius: 10px;
-padding: 14px 16px;
-cursor: pointer;
-flex-shrink: 0;
-transition: all 0.2s ease;
-box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
-display: flex;
-flex-direction: column;
-gap: 6px;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  padding: 14px 18px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .pending-card:hover { 
-border-color: #0077B6; 
-background: #f0f8ff; 
+  border-color: #0077B6; 
+  background: #f0f8ff; 
+}
+
+.pending-card:active {
+  transform: scale(0.98);
 }
 
 .pending-card.active { 
-border-color: #0077B6; 
-background: #e6f4fb; 
-box-shadow: 0 0 0 2px rgba(0, 119, 182, 0.2); 
+  border-color: #0077B6; 
+  background: #e6f4fb; 
+  box-shadow: 0 0 0 2px rgba(0, 119, 182, 0.2); 
 }
 
 .card-top-row {
-display: flex;
-justify-content: space-between;
-align-items: center;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .order-id {
-font-weight: 700;
-color: #041528;
-font-size: 0.95rem;
+  font-weight: 700;
+  color: #041528;
+  font-size: 0.95rem;
 }
 
 .order-total {
-font-weight: 700;
-color: #0077B6;
-font-size: 0.95rem;
+  font-weight: 700;
+  color: #0077B6;
+  font-size: 0.95rem;
 }
 
 .card-mid-row {
-display: flex;
-justify-content: space-between;
+  display: flex;
+  justify-content: space-between;
 }
 
 .customer-name {
-font-weight: 600;
-color: #334155;
-font-size: 0.9rem;
+  font-weight: 600;
+  color: #334155;
+  font-size: 0.95rem;
 }
 
 .card-bot-row {
-display: flex;
-justify-content: space-between;
-align-items: center;
-margin-top: 2px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 2px;
 }
 
 .muted { 
-color: #64748b; 
-font-size: 0.8rem; 
+  color: #64748b; 
+  font-size: 0.85rem; 
 }
 
 .empty { 
-padding: 40px; 
-text-align: center; 
-color: #94a3b8; 
-display: flex;
-flex-direction: column;
-align-items: center;
-gap: 8px;
-font-size: 0.95rem;
+  padding: 40px; 
+  text-align: center; 
+  color: #94a3b8; 
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.95rem;
 }
 
 .empty-icon {
-font-size: 2rem;
+  font-size: 2.2rem;
 }
 
 .client-bill {
-width: 50%;
-background-color: #ffffff;
-color: #1e293b;
-overflow: hidden;
-display: flex;
-flex-direction: column;
-box-sizing: border-box;
+  width: 48%;
+  background-color: #ffffff;
+  color: #1e293b;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
 }
 
 .bill-header {
-padding: 18px 20px 0 20px;
-background: #ffffff;
-flex-shrink: 0;
+  padding: 18px 20px 0 20px;
+  background: #ffffff;
+  flex-shrink: 0;
 }
 
 #h1 {
-width: 100%;
-margin: 0;
-font-size: 1.15rem;
-color: #041528;
-font-weight: 600;
+  width: 100%;
+  margin: 0;
+  font-size: 1.25rem;
+  color: #041528;
+  font-weight: 600;
 }
 
 .heads {
-width: 100%;
-display: flex;
-flex-direction: row;
-align-items: center;
-justify-content: space-between;
-padding: 12px 20px;
-flex-shrink: 0;
-border-bottom: 2px solid #e2e8f0;
-box-sizing: border-box;
-background: #ffffff;
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  flex-shrink: 0;
+  border-bottom: 2px solid #e2e8f0;
+  box-sizing: border-box;
+  background: #ffffff;
 }
 
 .heads h3 {
-margin: 0;
-font-size: 0.85rem;
-color: #64748b;
-font-weight: 600;
+  margin: 0;
+  font-size: 0.9rem;
+  color: #64748b;
+  font-weight: 600;
 }
 
 #n { width: 50%; text-align: left; }
@@ -562,181 +561,204 @@ font-weight: 600;
 #p { text-align: right; width: 35%; }
 
 .bills {
-flex: 1;
-min-height: 0;
-overflow-y: auto;
-overflow-x: hidden;
-width: 100%;
-padding: 0 20px;
-box-sizing: border-box;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  width: 100%;
+  padding: 0 20px;
+  box-sizing: border-box;
 }
 
 .bdata {
-width: 100%;
-display: flex;
-flex-direction: row;
-align-items: center;
-justify-content: space-between;
-padding: 10px 4px;
-font-size: 0.85rem;
-cursor: pointer;
-border-bottom: 1px solid #f1f5f9;
-transition: background 0.15s;
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 4px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  border-bottom: 1px solid #f1f5f9;
+  transition: background 0.15s;
 }
 
 .bdata:hover { 
-background: rgba(239, 68, 68, 0.05); 
-border-radius: 6px;
+  background: rgba(239, 68, 68, 0.05); 
+  border-radius: 6px;
 }
 
 .n { 
-width: 50%; 
-text-align: left; 
-overflow: hidden; 
-text-overflow: ellipsis;
-white-space: nowrap;
-color: #334155;
-font-weight: 500;
+  width: 50%; 
+  text-align: left; 
+  overflow: hidden; 
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #334155;
+  font-weight: 500;
 }
 
 .q { 
-overflow: hidden; 
-text-align: center; 
-width: 15%; 
-color: #64748b;
+  overflow: hidden; 
+  text-align: center; 
+  width: 15%; 
+  color: #64748b;
 }
 
 .p { 
-overflow: hidden; 
-text-align: right; 
-width: 35%; 
-color: #1e293b;
-font-weight: 600;
+  overflow: hidden; 
+  text-align: right; 
+  width: 35%; 
+  color: #1e293b;
+  font-weight: 600;
 }
 
 .last {
-position: sticky;
-bottom: 0;
-background: #f8fafc;
-border-top: 1px solid #e2e8f0;
-padding: 15px 20px;
-flex-shrink: 0;
-box-sizing: border-box;
-display: flex;
-flex-direction: column;
-gap: 10px;
+  position: sticky;
+  bottom: 0;
+  background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+  padding: 18px 20px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .calc-row {
-display: flex;
-flex-direction: row;
-align-items: center;
-justify-content: space-between;
-width: 100%;
-font-size: 0.9rem;
-color: #475569;
-font-weight: 500;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  font-size: 0.95rem;
+  color: #475569;
+  font-weight: 500;
 }
 
 .read-only-row {
-background: #e2e8f0;
-padding: 6px 10px;
-border-radius: 6px;
+  background: #e2e8f0;
+  padding: 8px 12px;
+  border-radius: 8px;
 }
 
 .badge-text {
-font-weight: 600;
-color: #041528;
+  font-weight: 600;
+  color: #041528;
 }
 
 .last span {
-display: flex;
-flex-direction: row;
-align-items: center;
-justify-content: space-between;
-width: 100%;
-font-size: 0.9rem;
-color: #475569;
-font-weight: 500;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  font-size: 0.95rem;
+  color: #475569;
+  font-weight: 500;
 }
 
 .input-span input { 
-width: 65px; 
-padding: 4px;
-text-align: center; 
-border: 1px solid #cbd5e1;
-border-radius: 6px;
-font-size: 0.85rem;
-background: #ffffff;
-color: #1e293b;
-outline: none;
+  width: 70px; 
+  padding: 6px;
+  text-align: center; 
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  background: #ffffff;
+  color: #1e293b;
+  outline: none;
 }
 
 .input-span input:focus {
-border-color: #0077B6;
+  border-color: #0077B6;
+  box-shadow: 0 0 0 3px rgba(0, 119, 182, 0.15);
 }
 
 .total-span {
-font-size: 1.1rem !important;
-font-weight: 700 !important;
-color: #041528 !important;
-border-top: 1px dashed #cbd5e1;
-padding-top: 8px;
-margin-top: 2px;
+  font-size: 1.2rem !important;
+  font-weight: 700 !important;
+  color: #041528 !important;
+  border-top: 1px dashed #cbd5e1;
+  padding-top: 10px;
+  margin-top: 4px;
 }
 
 .action-buttons {
-display: flex;
-gap: 10px;
-width: 100%;
-margin-top: 4px;
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  margin-top: 6px;
 }
 
 button {
-padding: 8px 12px;
-font-size: 0.9rem;
-font-weight: 600;
-border: none;
-border-radius: 6px;
-cursor: pointer;
-transition: background-color 0.2s;
+  padding: 10px 14px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.2s, transform 0.1s;
+}
+
+button:active {
+  transform: scale(0.98);
 }
 
 .head button {
-background: #0284c7;
-color: #ffffff;
-padding: 6px 12px;
-font-size: 0.85rem;
+  background: #0284c7;
+  color: #ffffff;
+  padding: 6px 12px;
+  font-size: 0.85rem;
 }
 
 .head button:hover {
-background: #0369a1;
+  background: #0369a1;
 }
 
 .reject-btn {
-background-color: #ef4444;
-color: #ffffff;
-width: 50%;
-padding: 12px;
+  background-color: #ef4444;
+  color: #ffffff;
+  width: 50%;
+  padding: 12px;
 }
 
 .reject-btn:hover {
-background-color: #dc2626;
+  background-color: #dc2626;
 }
 
 .pay-btn {
-background-color: #0077B6;
-color: #ffffff;
-width: 50%;
-padding: 12px;
+  background-color: #0077B6;
+  color: #ffffff;
+  width: 50%;
+  padding: 12px;
 }
 
 .pay-btn:hover {
-background-color: #026094;
+  background-color: #026094;
 }
 
 button:disabled {
-background-color: #94a3b8;
-cursor: not-allowed;
+  background-color: #94a3b8;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Slim Custom Scrollbar */
+.pending-list::-webkit-scrollbar,
+.bills::-webkit-scrollbar {
+  width: 6px;
+}
+
+.pending-list::-webkit-scrollbar-thumb,
+.bills::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 10px;
+}
+
+.pending-list::-webkit-scrollbar-thumb:hover,
+.bills::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
 }
 </style>
