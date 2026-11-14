@@ -358,7 +358,7 @@ async function bill(statusType = 'paid') {
 
 <style scoped>
 .client-wrapper {
-  width: 100%;
+  width: 100vw;
   height: 100vh;
   display: flex;
   flex-direction: row;
@@ -371,7 +371,8 @@ async function bill(statusType = 'paid') {
 
 .client-work {
   width: 68%;
-  padding: 24px;
+  height: 100vh;
+  padding: 16px;
   display: flex;
   flex-direction: row;
   align-items: flex-start;
@@ -383,7 +384,7 @@ async function bill(statusType = 'paid') {
 .folder-grid, .file-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 16px;
+  gap: 12px;
   align-content: flex-start;
   justify-content: flex-start;
   width: 100%;
@@ -393,17 +394,18 @@ async function bill(statusType = 'paid') {
 .item-box1 {
   width: 120px;
   height: 120px;
-  padding: 14px;
+  padding: 10px;
   background: #1e293b;
   border: 1px solid #334155;
-  border-radius: 14px;
+  border-radius: 12px;
   cursor: pointer;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 6px;
+  box-sizing: border-box;
   transition: all 0.15s ease;
 }
 
@@ -418,25 +420,26 @@ async function bill(statusType = 'paid') {
 }
 
 .folder-icon {
-  font-size: 2rem;
+  font-size: 1.6rem;
 }
 
 .folder-name {
-  font-size: 0.95rem;
+  font-size: 0.85rem;
   font-weight: 600;
   color: #f8fafc;
   text-align: center;
   word-break: break-word;
+  line-height: 1.15;
 }
 
 .item-box {
   width: 120px;
   height: 120px;
-  padding: 14px;
+  padding: 8px;
   background: #1e293b;
   border: 1px solid #334155;
-  border-radius: 14px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  border-radius: 12px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -458,20 +461,24 @@ async function bill(statusType = 'paid') {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
   flex-grow: 1;
+  overflow: hidden;
 }
 
 .name {
-  font-size: 0.95rem;
+  font-size: 0.8rem;
   font-weight: 600;
   color: #f8fafc;
   text-align: center;
   word-break: break-word;
+  line-height: 1.1;
+  max-height: 2.2em;
+  overflow: hidden;
 }
 
 .stock-label {
-  font-size: 0.8rem;
+  font-size: 0.7rem;
   color: #94a3b8;
 }
 
@@ -479,16 +486,15 @@ async function bill(statusType = 'paid') {
   width: 100%;
   display: flex;
   justify-content: center;
-  margin-top: 4px;
 }
 
 #input1[type="number"] {
-  width: 75px;
-  padding: 8px;
+  width: 55px;
+  padding: 3px;
   text-align: center;
   border: 1px solid #475569;
-  border-radius: 8px;
-  font-size: 0.95rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
   background: #0f172a;
   color: #f8fafc;
   outline: none;
@@ -496,17 +502,17 @@ async function bill(statusType = 'paid') {
 
 #input1[type="number"]:focus {
   border-color: #38bdf8;
-  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2);
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
 }
 
 #b1 {
   width: 100%;
-  padding: 8px;
-  font-size: 0.9rem;
+  padding: 5px;
+  font-size: 0.75rem;
   background-color: #0284c7;
   color: #ffffff;
   border: none;
-  border-radius: 8px;
+  border-radius: 6px;
   cursor: pointer;
   font-weight: 600;
   transition: background-color 0.2s;
@@ -525,7 +531,7 @@ async function bill(statusType = 'paid') {
   background-color: #1e293b;
   border: 1px dashed #475569;
   justify-content: center;
-  gap: 8px;
+  gap: 4px;
 }
 
 .back-box:hover {
@@ -534,18 +540,19 @@ async function bill(statusType = 'paid') {
 }
 
 #arrow {
-  font-size: 1.4rem;
+  font-size: 1.2rem;
   color: #38bdf8;
 }
 
 .back-text {
   font-weight: 600;
   color: #f8fafc;
-  font-size: 0.95rem;
+  font-size: 0.85rem;
 }
 
 .client-bill {
   width: 32%;
+  height: 100vh;
   background-color: #1e293b;
   color: #f8fafc;
   border-left: 1px solid #334155;
@@ -553,24 +560,25 @@ async function bill(statusType = 'paid') {
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
-  overflow-y: auto;
+  overflow: hidden;
 }
 
 .bill-header {
-  padding: 18px 20px;
+  padding: 14px 16px;
   border-bottom: 1px solid #334155;
+  flex-shrink: 0;
 }
 
 #h1 {
   margin: 0;
-  font-size: 1.25rem;
+  font-size: 1.1rem;
   color: #f8fafc;
 }
 
 .bills {
   flex-grow: 1;
   overflow-y: auto;
-  padding: 15px 20px;
+  padding: 12px 16px;
   box-sizing: border-box;
 }
 
@@ -581,13 +589,17 @@ async function bill(statusType = 'paid') {
   align-items: center;
   justify-content: space-between;
   border-bottom: 2px solid #334155;
-  padding-bottom: 8px;
-  margin-bottom: 12px;
+  padding-bottom: 6px;
+  margin-bottom: 8px;
+  flex-shrink: 0;
+  padding-left: 16px;
+  padding-right: 16px;
+  box-sizing: border-box;
 }
 
 .heads h3 {
   margin: 0;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   color: #94a3b8;
   font-weight: 600;
 }
@@ -598,9 +610,9 @@ async function bill(statusType = 'paid') {
 
 .empty-cart {
   text-align: center;
-  padding: 40px 20px;
+  padding: 30px 10px;
   color: #64748b;
-  font-size: 0.95rem;
+  font-size: 0.9rem;
 }
 
 .bdata {
@@ -609,8 +621,8 @@ async function bill(statusType = 'paid') {
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 6px;
-  font-size: 0.9rem;
+  padding: 8px 4px;
+  font-size: 0.85rem;
   cursor: pointer;
   border-bottom: 1px solid #334155;
   transition: background 0.15s;
@@ -645,13 +657,14 @@ async function bill(statusType = 'paid') {
 }
 
 .last {
-  padding: 18px 20px;
+  padding: 14px 16px;
   background: #0f172a;
   border-top: 1px solid #334155;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
   box-sizing: border-box;
+  flex-shrink: 0;
 }
 
 .calc-row {
@@ -660,17 +673,17 @@ async function bill(statusType = 'paid') {
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   color: #94a3b8;
   font-weight: 500;
 }
 
 .pos-select {
-  width: 120px;
-  padding: 6px 8px;
+  width: 110px;
+  padding: 5px 6px;
   border: 1px solid #475569;
-  border-radius: 8px;
-  font-size: 0.9rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
   background: #1e293b;
   color: #f8fafc;
   outline: none;
@@ -681,12 +694,12 @@ async function bill(statusType = 'paid') {
 }
 
 .input-calc-row input {
-  width: 70px;
-  padding: 6px;
+  width: 65px;
+  padding: 5px;
   text-align: center;
   border: 1px solid #475569;
-  border-radius: 8px;
-  font-size: 0.9rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
   background: #1e293b;
   color: #f8fafc;
   outline: none;
@@ -697,29 +710,29 @@ async function bill(statusType = 'paid') {
 }
 
 .total-row {
-  font-size: 1.2rem;
+  font-size: 1.1rem;
   font-weight: 700;
   color: #f8fafc;
   border-top: 1px dashed #475569;
-  padding-top: 10px;
-  margin-top: 4px;
+  padding-top: 8px;
+  margin-top: 2px;
 }
 
 .action-buttons {
   display: flex;
   gap: 8px;
-  margin-top: 6px;
+  margin-top: 4px;
 }
 
 .pay-btn {
   background-color: #0284c7;
   color: #ffffff;
-  padding: 14px;
-  font-size: 1rem;
+  padding: 12px;
+  font-size: 0.95rem;
   font-weight: 600;
   width: 100%;
   border: none;
-  border-radius: 10px;
+  border-radius: 8px;
   cursor: pointer;
   transition: background-color 0.2s, transform 0.1s;
 }
@@ -745,7 +758,7 @@ async function bill(statusType = 'paid') {
 .client-work::-webkit-scrollbar,
 .client-bill::-webkit-scrollbar,
 .bills::-webkit-scrollbar {
-  width: 6px;
+  width: 5px;
 }
 
 .client-work::-webkit-scrollbar-thumb,
