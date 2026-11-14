@@ -317,7 +317,7 @@ async function bill(statusType = 'paid') {
     if (result.shopname || result.shop_name) shopProfile.value.shop_name = result.shopname || result.shop_name;
     if (result.s_mobile || result.mobile) shopProfile.value.s_mobile = result.s_mobile || result.mobile;
     if (result.s_address || result.address) shopProfile.value.s_address = result.s_address || result.address;
-
+    alert(shopProfile.value.shop_name);
     await printKOT(selectedItems.value, billnumResult);
 
     if (statusType === 'paid') {
