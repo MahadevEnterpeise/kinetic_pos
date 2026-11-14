@@ -391,7 +391,7 @@ async function bill(statusType = 'paid') {
 }
 
 .item-box1 {
-  width: 155px;
+  width: 120px;
   height: 120px;
   padding: 14px;
   background: #1e293b;
@@ -430,8 +430,8 @@ async function bill(statusType = 'paid') {
 }
 
 .item-box {
-  width: 155px;
-  height: 175px;
+  width: 120px;
+  height: 120px;
   padding: 14px;
   background: #1e293b;
   border: 1px solid #334155;
