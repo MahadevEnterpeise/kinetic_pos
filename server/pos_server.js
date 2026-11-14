@@ -277,22 +277,27 @@ router.get('/billing/products', async (req, res) => {
 
     const menuData = await dbActions.getShopMenuForOrder(shopId);
 
-    // Map `id` explicitly to `pid` so the frontend inventory items carry `pid` directly
+    // Map `id` explicitly to `pid` so inventory items carry `pid` directly
     const formattedItems = (menuData.items || []).map(item => ({
       ...item,
       pid: item.pid || item.id
     }));
 
-    return res.status(200).json(formattedItems);
+    // Return the full object so shopName, currency, and items are all available
+    return res.status(200).json({
+      shopId: menuData.shopId,
+      shopName: menuData.shopName,
+      currency: menuData.currency,
+      mobile: menuData.mobile,
+      items: formattedItems,
+      bills: menuData.bills
+    });
 
   } catch (error) {
     console.error('❌ Error fetching shop products:', error.message);
     return res.status(500).json({ error: 'Internal Server Error' });
   }
 });
-
-
-
 
 // 2. Place a new customer order (creates pending bill and triggers WebSocket alert to shop tablet)
 router.post('/customer/orders', resolveActorContext, async (req, res) => {
