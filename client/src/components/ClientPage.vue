@@ -11,7 +11,7 @@
 <span class="folder-name">{{ n.name }}</span>
 </div>
 <div v-if="data.length === 0" class="empty-state">
-<p id="white">No product categories available</p>
+<p id="white">No product categories available (Check shop ID / backend connection)</p>
 </div>
 </div>
 
@@ -113,7 +113,6 @@
 import { onMounted, ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { link, printReceipt } from '../assets/Link';
-import { eventBus } from '../assets/eventBus';
 
 const router = useRouter();
 
@@ -142,19 +141,19 @@ const shopProfile = ref({
 
 const Token = sessionStorage.getItem('userToken');
 const shopId = sessionStorage.getItem('shopId') || sessionStorage.getItem('shopid');
-const clientUid = Token;
 
 async function fetchProducts() {
   try {
     loading.value = true;
     error.value = null;
 
+    console.log("Fetching products with shopId:", shopId);
+
     const res = await fetch(`${link}/my-products`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${Token}`,
         'shop-id': shopId,
-        'client-uid': clientUid,
         'Content-Type': 'application/json'
       }
     });
@@ -162,6 +161,8 @@ async function fetchProducts() {
     if (!res.ok) throw new Error(`API Error: ${res.status}`);
 
     const result = await res.json();
+    console.log("Fetched products result:", result);
+
     data.value = result.categories || [];
     currency.value = result.currency || 'LKR';
 
@@ -193,7 +194,7 @@ const subtotal = computed(() => {
 function opens(a) {
   const category = data.value.find(c => c.id === a);
   if (category) {
-    openeditems.value = category.items;
+    openeditems.value = category.items || [];
     open.value = true;
     selected.value = true;
   }
@@ -284,12 +285,10 @@ async function bill(statusType = 'paid') {
   if (saving.value) return;
 
   saving.value = true;
-  button.value = statusType === 'pending' ? 'Holding...' : 'Saving...';
+  button.value = 'Saving...';
 
   const payload = {
     shopId: shopId,
-    uid: clientUid,
-    clientUid: clientUid,
     sc: Number(sc.value) || 0,
     rc: Number(rc.value) || 0,
     orderType: orderType.value,
@@ -309,8 +308,7 @@ async function bill(statusType = 'paid') {
       headers: {
         'Authorization': `Bearer ${Token}`,
         'Content-Type': 'application/json',
-        'shop-id': shopId,
-        'client-uid': clientUid
+        'shop-id': shopId
       },
       body: JSON.stringify(payload)
     });
@@ -348,15 +346,12 @@ async function bill(statusType = 'paid') {
       };
 
       await printReceipt(printPayload);
-    } else {
-      alert('Bill held successfully as pending and KOT printed!');
     }
 
     selectedItems.value = [];
     rc.value = 0;
     sc.value = 0;
 
-    eventBus.triggerRefresh();
     await fetchProducts(); // Refresh live stock from server
   } catch (err) {
     console.error("Bill save failed:", err);
@@ -365,10 +360,6 @@ async function bill(statusType = 'paid') {
     saving.value = false;
     button.value = 'Save & Pay';
   }
-}
-
-async function holdBill() {
-  await bill('pending');
 }
 </script>
 
@@ -715,29 +706,13 @@ gap: 8px;
 margin-top: 5px;
 }
 
-.hold-btn {
-background-color: #475569;
-color: #ffffff;
-padding: 12px;
-font-size: 0.95rem;
-font-weight: 600;
-width: 50%;
-border: none;
-border-radius: 8px;
-cursor: pointer;
-}
-
-.hold-btn:hover {
-background-color: #64748b;
-}
-
 .pay-btn {
 background-color: #0284c7;
 color: #ffffff;
 padding: 12px;
 font-size: 0.95rem;
 font-weight: 600;
-width: 50%;
+width: 100%;
 border: none;
 border-radius: 8px;
 cursor: pointer;
@@ -748,7 +723,7 @@ transition: background-color 0.2s;
 background-color: #0369a1;
 }
 
-.pay-btn:disabled, .hold-btn:disabled {
+.pay-btn:disabled {
 background-color: #334155;
 cursor: not-allowed;
 }
