@@ -304,7 +304,7 @@ router.post('/customer/orders', resolveActorContext, async (req, res) => {
   try {
     const shopId = req.headers['shop-id'] || req.body.shopId;
     const clientUid = req.headers['client-uid'] || req.headers['authorization']?.replace('Bearer ', '') || req.body.clientUid;
-    const { items, sc, rc } = req.body;
+    const { items, sc, rc, orderType,paymentType } = req.body;
 
     if (!shopId || !clientUid || !items || !Array.isArray(items)) {
       return res.status(400).json({ error: 'Shop ID, Client ID, and a valid items array are required.' });
@@ -337,7 +337,9 @@ router.post('/customer/orders', resolveActorContext, async (req, res) => {
       clientUid, 
       null, 
       sc || 0, 
-      rc || 0
+      rc || 0,
+      orderType,
+      paymentType
     );
 
     // Audit log & Real-time WebSocket notifications
