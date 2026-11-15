@@ -57,7 +57,7 @@
           <h1>Bill #{{ selectedOrder?.id || '--' }}</h1>
         </div>
         <span v-if="selectedOrder" class="order-type-badge">
-          {{ (selectedOrder.orderType || 'Takeaway').toUpperCase() }}
+          {{ (selectedOrder.orderType || 'takeaway').toUpperCase() }}
         </span>
       </div>
 
@@ -68,7 +68,7 @@
         <span class="th-price">Price</span>
       </div>
 
-      <!-- Bill Items List -->
+      <!-- Bill Items Container -->
       <div class="bill-items-container">
         <div v-if="selectedItems.length === 0" class="state-box empty-bill">
           <span class="empty-icon">👈</span>
@@ -95,10 +95,23 @@
 
       <!-- Footer Calculation & Action Block -->
       <div class="bill-footer" v-if="selectedOrder">
-        <div class="meta-info-row">
-          <div class="info-pill">
-            <span class="label">Payment:</span>
-            <span class="value">{{ (selectedOrder.paymentType || 'Cash').toUpperCase() }}</span>
+        <!-- Order Type & Payment Type Selectors -->
+        <div class="selectors-grid">
+          <div class="select-group">
+            <label>Order Type</label>
+            <select v-model="selectedOrder.orderType">
+              <option value="takeaway">Takeaway</option>
+              <option value="delivery">Delivery</option>
+            </select>
+          </div>
+
+          <div class="select-group">
+            <label>Payment Type</label>
+            <select v-model="selectedOrder.paymentType">
+              <option value="cash">Cash</option>
+              <option value="card">Card</option>
+              <option value="online">Online</option>
+            </select>
           </div>
         </div>
 
@@ -131,6 +144,32 @@
           <button class="action-btn pay-btn" @click="bill" :disabled="saving || selectedItems.length === 0">
             {{ buttonText }}
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- STICKY BOTTOM SUMMARY BAR (z-index: 99) -->
+    <div class="sticky-cart-summary" v-if="selectedOrder">
+      <div class="summary-content">
+        <div class="summary-item">
+          <span class="s-label">Order:</span>
+          <span class="s-val">#{{ selectedOrder.id }}</span>
+        </div>
+        <div class="summary-item">
+          <span class="s-label">Type:</span>
+          <span class="s-val badge">{{ (selectedOrder.orderType || 'takeaway').toUpperCase() }}</span>
+        </div>
+        <div class="summary-item">
+          <span class="s-label">Payment:</span>
+          <span class="s-val badge">{{ (selectedOrder.paymentType || 'cash').toUpperCase() }}</span>
+        </div>
+        <div class="summary-item">
+          <span class="s-label">Items:</span>
+          <span class="s-val">{{ selectedItems.length }}</span>
+        </div>
+        <div class="summary-item total-summary">
+          <span class="s-label">Total:</span>
+          <span class="s-val-total">{{ Number(total || 0).toFixed(2) }} {{ currency }}</span>
         </div>
       </div>
     </div>
@@ -186,7 +225,13 @@ function remove(rid) {
 }
 
 function loadPending(o) {
-  selectedOrder.value = o;
+  // Ensure default values exist if not provided by server
+  selectedOrder.value = {
+    ...o,
+    orderType: o.orderType || 'takeaway',
+    paymentType: o.paymentType || 'cash'
+  };
+
   selectedItems.value = (o.items || []).map(it => {
     const qty = Number(it.qty) || 1;
     let rawPrice = Number(it.price) || 0;
@@ -400,7 +445,6 @@ onUnmounted(() => {});
 </script>
 
 <style scoped>
-/* Base Layout & Resets */
 *, *::before, *::after {
   box-sizing: border-box;
 }
@@ -421,6 +465,8 @@ html, body {
   flex-direction: row;
   background-color: #f1f5f9;
   overflow: hidden;
+  position: relative;
+  padding-bottom: 50px; /* Make room for sticky bar */
 }
 
 /* ================= LEFT PANE: PENDING ORDERS ================= */
@@ -658,7 +704,7 @@ html, body {
 }
 
 .bill-item-row:hover {
-  background: #fef2f2; /* Light red subtle hover for removal cue */
+  background: #fef2f2;
 }
 
 .item-name-wrap {
@@ -716,25 +762,44 @@ html, body {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  margin-bottom: 40px; /* Space for sticky footer */
 }
 
-.meta-info-row {
+.selectors-grid {
   display: flex;
   gap: 10px;
 }
 
-.info-pill {
-  background: #ffffff;
-  border: 1px solid #cbd5e1;
-  padding: 4px 10px;
-  border-radius: 6px;
-  font-size: 0.8rem;
+.select-group {
+  flex: 1;
   display: flex;
-  gap: 6px;
+  flex-direction: column;
+  gap: 4px;
 }
 
-.info-pill .label { color: #64748b; }
-.info-pill .value { font-weight: 600; color: #0f172a; }
+.select-group label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+}
+
+.select-group select {
+  padding: 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #0f172a;
+  font-size: 0.9rem;
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+}
+
+.select-group select:focus {
+  border-color: #0284c7;
+  box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.15);
+}
 
 .calc-block {
   background: #ffffff;
@@ -836,6 +901,71 @@ html, body {
   transform: none;
 }
 
+/* ================= STICKY BOTTOM SUMMARY BAR (z-index: 99) ================= */
+.sticky-cart-summary {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100vw;
+  height: 48px;
+  background: #0f172a;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 99;
+  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.15);
+  border-top: 1px solid #1e293b;
+}
+
+.summary-content {
+  width: 100%;
+  max-width: 1200px;
+  padding: 0 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.summary-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.summary-item .s-label {
+  color: #94a3b8;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.summary-item .s-val {
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.summary-item .badge {
+  background: #0284c7;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+}
+
+.total-summary {
+  background: #1e293b;
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: 1px solid #334155;
+}
+
+.summary-item .s-val-total {
+  color: #38bdf8;
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
 /* Common State Boxes (Loading / Empty) */
 .state-box {
   padding: 40px 20px;
@@ -861,7 +991,6 @@ html, body {
   font-size: 2rem;
 }
 
-/* Spinner for Loading */
 .spinner {
   width: 28px;
   height: 28px;
@@ -875,7 +1004,6 @@ html, body {
   to { transform: rotate(360deg); }
 }
 
-/* Scrollbar Customization */
 .pending-list-container::-webkit-scrollbar,
 .bill-items-container::-webkit-scrollbar {
   width: 6px;
