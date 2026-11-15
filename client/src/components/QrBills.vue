@@ -1,175 +1,109 @@
 <template>
-  <div class="pos-main-container" v-if="!billshow">
-    <!-- LEFT PANE: PENDING ORDERS -->
+  <div class="client-wrapper" v-if="!billshow">
+    <!-- LEFT PANE: PENDING LIST -->
     <div class="pending-pane">
-      <div class="pane-header">
-        <div class="header-title">
-          <span class="title-icon">📋</span>
-          <h2>Pending Orders</h2>
-        </div>
-        <button class="fetch-btn" @click="fetchPendingOrders()" :disabled="loading">
-          <span>🔄</span> Fetch
-        </button>
+      <div class="head">
+        <span>Pending Orders</span>
+        <button @click="fetchPendingOrders()">Fetch</button>
       </div>
 
-      <div class="pending-list-container">
-        <div v-if="loading" class="state-box">
-          <div class="spinner"></div>
-          <p>Loading orders...</p>
-        </div>
-        
-        <div v-else-if="pendingOrders.length === 0" class="state-box">
+      <div class="pending-list">
+        <div v-if="loading" class="empty">Loading...</div>
+        <div v-else-if="pendingOrders.length === 0" class="empty">
           <span class="empty-icon">📭</span>
-          <p>No pending orders right now</p>
+          <p>No pending orders</p>
         </div>
 
-        <div v-else class="orders-grid">
-          <div
-            v-for="o in pendingOrders"
-            :key="o.id"
-            class="order-card"
-            :class="{ active: selectedOrder?.id === o.id }"
-            @click="loadPending(o)"
-          >
-            <div class="card-top">
-              <span class="order-id">#{{ o.id }}</span>
-              <span class="order-total">{{ Number(o.total || 0).toFixed(2) }} {{ currency }}</span>
-            </div>
+        <div
+          v-for="o in pendingOrders"
+          :key="o.id"
+          class="pending-card"
+          :class="{ active: selectedOrder?.id === o.id }"
+          @click="loadPending(o)"
+        >
+          <div class="card-top-row">
+            <span class="order-id">#{{ o.id }}</span>
+            <span class="order-total">{{ Number(o.total || 0).toFixed(2) }} {{ currency }}</span>
+          </div>
 
-            <div class="card-middle">
-              <span class="customer-name">👤 {{ o.customer || 'Walk-in Customer' }}</span>
-            </div>
+          <div class="card-mid-row">
+            <span class="customer-name">{{ o.customer || 'Walk-in Customer' }}</span>
+          </div>
 
-            <div class="card-bottom">
-              <span class="meta-tag">📦 {{ o.items ? o.items.length : 0 }} items</span>
-              <span class="meta-date">🕒 {{ formatDate(o.date) }}</span>
-            </div>
+          <div class="card-bot-row">
+            <span class="muted">{{ o.items ? o.items.length : 0 }} items</span>
+            <span class="muted">{{ formatDate(o.date) }}</span>
           </div>
         </div>
       </div>
     </div>
 
     <!-- RIGHT PANE: BILL SECTOR -->
-    <div class="bill-pane">
-      <div class="bill-pane-header">
-        <div class="bill-title-wrapper">
-          <span class="receipt-icon">🧾</span>
-          <h1>Bill #{{ selectedOrder?.id || '--' }}</h1>
+    <div class="client-bill">
+      <div class="bill-header">
+        <h1 id="h1">Bill #{{ selectedOrder?.id || '--' }}</h1>
+      </div>
+
+      <div class="heads">
+        <h3 id="n">Name</h3>
+        <h3 id="q">Qty</h3>
+        <h3 id="p">Price</h3>
+      </div>
+
+      <div class="bills">
+        <div v-if="selectedItems.length === 0" class="empty">
+          <span class="empty-icon">🧾</span>
+          <p>Select a pending order</p>
         </div>
-        <span v-if="selectedOrder" class="order-type-badge">
-          {{ (selectedOrder.orderType || 'takeaway').toUpperCase() }}
+
+        <div 
+          class="bdata" 
+          v-for="i in selectedItems" 
+          :key="i.id" 
+          @click="remove(i.id)" 
+          title="Click to remove item"
+        >
+          <p class="n">{{ i.name }}</p>
+          <p class="q">{{ i.qty }}</p>
+          <p class="p">{{ Number((i.price) || 0).toFixed(2) }}</p>
+        </div>
+      </div>
+
+      <div class="last">
+        <!-- Showable Order Type & Payment Type -->
+        <div class="calc-row read-only-row" v-if="selectedOrder">
+          <span>Order Type</span>
+          <span class="badge-text">{{ (selectedOrder.orderType || 'Takeaway').toUpperCase() }}</span>
+        </div>
+
+        <div class="calc-row read-only-row" v-if="selectedOrder">
+          <span>Payment Type</span>
+          <span class="badge-text">{{ (selectedOrder.paymentType || 'Cash').toUpperCase() }}</span>
+        </div>
+
+        <span id="subtotal">
+          <p>Sub Total</p>
+          <p>{{ Number(subtotal || 0).toFixed(2) }} {{ currency }}</p>
         </span>
-      </div>
 
-      <!-- Table Headings -->
-      <div class="table-headers" v-if="selectedItems.length > 0">
-        <span class="th-name">Item Name</span>
-        <span class="th-qty">Qty</span>
-        <span class="th-price">Price</span>
-      </div>
+        <span id="service" class="input-span">
+          <p>Service charge %</p>
+          <input type="number" v-model.number="sc" min="0" />
+        </span>
 
-      <!-- Bill Items Container -->
-      <div class="bill-items-container">
-        <div v-if="selectedItems.length === 0" class="state-box empty-bill">
-          <span class="empty-icon">👈</span>
-          <p>Select a pending order from the left to view bill details</p>
-        </div>
+        <span id="discount" class="input-span">
+          <p>Discount %</p>
+          <input type="number" v-model.number="rc" min="0" />
+        </span>
 
-        <div v-else class="items-list">
-          <div 
-            class="bill-item-row" 
-            v-for="i in selectedItems" 
-            :key="i.id" 
-            @click="remove(i.id)" 
-            title="Click to remove item"
-          >
-            <div class="item-name-wrap">
-              <span class="remove-hint">×</span>
-              <p class="item-name">{{ i.name }}</p>
-            </div>
-            <p class="item-qty">{{ i.qty }}</p>
-            <p class="item-price">{{ Number((i.price) * i.qty || 0).toFixed(2) }}</p>
-          </div>
-        </div>
-      </div>
-
-      <!-- Footer Calculation & Action Block -->
-      <div class="bill-footer" v-if="selectedOrder">
-        <!-- Order Type & Payment Type Selectors -->
-        <div class="selectors-grid">
-          <div class="select-group">
-            <label>Order Type</label>
-            <select v-model="selectedOrder.orderType">
-              <option value="takeaway">Takeaway</option>
-              <option value="delivery">Delivery</option>
-            </select>
-          </div>
-
-          <div class="select-group">
-            <label>Payment Type</label>
-            <select v-model="selectedOrder.paymentType">
-              <option value="cash">Cash</option>
-              <option value="card">Card</option>
-              <option value="online">Online</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="calc-block">
-          <div class="calc-row">
-            <span>Sub Total</span>
-            <span class="calc-val">{{ Number(subtotal || 0).toFixed(2) }} {{ currency }}</span>
-          </div>
-
-          <div class="calc-row input-row">
-            <span>Service Charge (%)</span>
-            <input type="number" v-model.number="sc" min="0" placeholder="0" />
-          </div>
-
-          <div class="calc-row input-row">
-            <span>Discount (%)</span>
-            <input type="number" v-model.number="rc" min="0" placeholder="0" />
-          </div>
-
-          <div class="calc-row total-row">
-            <span>Final Total</span>
-            <span class="total-val">{{ Number(total || 0).toFixed(2) }} {{ currency }}</span>
-          </div>
-        </div>
+        <span id="total" class="total-span">
+          <p>Total</p>
+          <p>{{ Number(total || 0).toFixed(2) }} {{ currency }}</p>
+        </span>
 
         <div class="action-buttons">
-          <button class="action-btn reject-btn" @click="reject" :disabled="saving">
-            Reject Order
-          </button>
-          <button class="action-btn pay-btn" @click="bill" :disabled="saving || selectedItems.length === 0">
-            {{ buttonText }}
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- STICKY BOTTOM SUMMARY BAR (z-index: 99) -->
-    <div class="sticky-cart-summary" v-if="selectedOrder">
-      <div class="summary-content">
-        <div class="summary-item">
-          <span class="s-label">Order:</span>
-          <span class="s-val">#{{ selectedOrder.id }}</span>
-        </div>
-        <div class="summary-item">
-          <span class="s-label">Type:</span>
-          <span class="s-val badge">{{ (selectedOrder.orderType || 'takeaway').toUpperCase() }}</span>
-        </div>
-        <div class="summary-item">
-          <span class="s-label">Payment:</span>
-          <span class="s-val badge">{{ (selectedOrder.paymentType || 'cash').toUpperCase() }}</span>
-        </div>
-        <div class="summary-item">
-          <span class="s-label">Items:</span>
-          <span class="s-val">{{ selectedItems.length }}</span>
-        </div>
-        <div class="summary-item total-summary">
-          <span class="s-label">Total:</span>
-          <span class="s-val-total">{{ Number(total || 0).toFixed(2) }} {{ currency }}</span>
+          <button class="reject-btn" @click="reject" :disabled="saving">Reject</button>
+          <button class="pay-btn" @click="bill" :disabled="saving">{{ buttonText }}</button>
         </div>
       </div>
     </div>
@@ -225,13 +159,7 @@ function remove(rid) {
 }
 
 function loadPending(o) {
-  // Ensure default values exist if not provided by server
-  selectedOrder.value = {
-    ...o,
-    orderType: o.orderType || 'takeaway',
-    paymentType: o.paymentType || 'cash'
-  };
-
+  selectedOrder.value = o;
   selectedItems.value = (o.items || []).map(it => {
     const qty = Number(it.qty) || 1;
     let rawPrice = Number(it.price) || 0;
@@ -445,129 +373,90 @@ onUnmounted(() => {});
 </script>
 
 <style scoped>
-*, *::before, *::after {
-  box-sizing: border-box;
-}
-
 html, body {
   margin: 0;
   padding: 0;
   height: 100vh;
-  background-color: #f8fafc;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background-color: #f0f8ff;
   overflow: hidden;
 }
 
-.pos-main-container {
+.client-wrapper {
   width: 100vw;
-  height: 100vh;
   display: flex;
   flex-direction: row;
-  background-color: #f1f5f9;
+  align-items: stretch;
+  justify-content: center;
+  height: 100vh;
   overflow: hidden;
-  position: relative;
-  padding-bottom: 50px; /* Make room for sticky bar */
+  background-color: #f0f8ff;
+  box-sizing: border-box;
 }
 
-/* ================= LEFT PANE: PENDING ORDERS ================= */
 .pending-pane {
-  width: 45%;
+  width: 52%;
   background: #ffffff;
   border-right: 1px solid #e2e8f0;
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  min-height: 0;
+  box-sizing: border-box;
 }
 
-.pane-header {
-  padding: 16px 20px;
-  background: #0f172a;
-  color: #ffffff;
+.head {
+  padding: 18px 20px;
+  background: #041528;
+  color: white;
+  flex-shrink: 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: 0.3px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  flex-shrink: 0;
 }
 
-.header-title {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.header-title h2 {
-  margin: 0;
-  font-size: 1.1rem;
-  font-weight: 600;
-  letter-spacing: 0.3px;
-}
-
-.title-icon {
-  font-size: 1.2rem;
-}
-
-.fetch-btn {
-  background: #0284c7;
-  color: #ffffff;
-  border: none;
-  padding: 6px 14px;
-  border-radius: 6px;
-  font-size: 0.85rem;
-  font-weight: 600;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  transition: background 0.2s, transform 0.1s;
-}
-
-.fetch-btn:hover {
-  background: #0369a1;
-}
-
-.fetch-btn:active {
-  transform: scale(0.97);
-}
-
-.pending-list-container {
+.pending-list {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 16px;
-  background-color: #f8fafc;
-}
-
-.orders-grid {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
+  background-color: #f8fafc;
 }
 
 .pending-card {
   background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  padding: 14px 16px;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  padding: 14px 18px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  gap: 6px;
 }
 
-.pending-card:hover {
-  border-color: #0284c7;
-  background: #f0f9ff;
-  transform: translateY(-1px);
+.pending-card:hover { 
+  border-color: #0077B6; 
+  background: #f0f8ff; 
 }
 
-.pending-card.active {
-  border-color: #0284c7;
-  background: #e0f2fe;
-  box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.15);
+.pending-card:active {
+  transform: scale(0.98);
 }
 
-.card-top {
+.pending-card.active { 
+  border-color: #0077B6; 
+  background: #e6f4fb; 
+  box-shadow: 0 0 0 2px rgba(0, 119, 182, 0.2); 
+}
+
+.card-top-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -575,311 +464,264 @@ html, body {
 
 .order-id {
   font-weight: 700;
-  color: #0f172a;
+  color: #041528;
   font-size: 0.95rem;
 }
 
 .order-total {
   font-weight: 700;
-  color: #0284c7;
-  font-size: 1rem;
+  color: #0077B6;
+  font-size: 0.95rem;
 }
 
-.card-middle {
+.card-mid-row {
   display: flex;
-  align-items: center;
+  justify-content: space-between;
 }
 
 .customer-name {
   font-weight: 600;
   color: #334155;
-  font-size: 0.9rem;
+  font-size: 0.95rem;
 }
 
-.card-bottom {
+.card-bot-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-top: 1px solid #f1f5f9;
-  padding-top: 6px;
   margin-top: 2px;
 }
 
-.meta-tag, .meta-date {
-  color: #64748b;
-  font-size: 0.8rem;
+.muted { 
+  color: #64748b; 
+  font-size: 0.85rem; 
 }
 
-
-/* ================= RIGHT PANE: BILL SECTOR ================= */
-.bill-pane {
-  width: 55%;
-  background-color: #ffffff;
+.empty { 
+  padding: 40px; 
+  text-align: center; 
+  color: #94a3b8; 
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.95rem;
 }
 
-.bill-pane-header {
-  padding: 16px 20px;
-  background: #ffffff;
-  border-bottom: 1px solid #e2e8f0;
+.empty-icon {
+  font-size: 2.2rem;
+}
+
+.client-bill {
+  width: 48%;
+  background-color: #ffffff;
+  color: #1e293b;
+  overflow: hidden;
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+.bill-header {
+  padding: 18px 20px 0 20px;
+  background: #ffffff;
   flex-shrink: 0;
 }
 
-.bill-title-wrapper {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.bill-pane-header h1 {
+#h1 {
+  width: 100%;
   margin: 0;
   font-size: 1.25rem;
-  color: #0f172a;
-  font-weight: 700;
+  color: #041528;
+  font-weight: 600;
 }
 
-.receipt-icon {
-  font-size: 1.3rem;
-}
-
-.order-type-badge {
-  background: #f1f5f9;
-  color: #0f172a;
-  padding: 4px 10px;
-  border-radius: 20px;
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  border: 1px solid #cbd5e1;
-}
-
-/* Table Column Headers */
-.table-headers {
+.heads {
+  width: 100%;
   display: flex;
-  justify-content: space-between;
-  padding: 10px 20px;
-  background: #f8fafc;
-  border-bottom: 1px solid #e2e8f0;
-  flex-shrink: 0;
-}
-
-.table-headers span {
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: #64748b;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.th-name { width: 50%; text-align: left; }
-.th-qty { width: 15%; text-align: center; }
-.th-price { width: 35%; text-align: right; }
-
-/* Bill Items Container */
-.bill-items-container {
-  flex: 1;
-  overflow-y: auto;
-  padding: 0;
-  background-color: #ffffff;
-}
-
-.items-list {
-  display: flex;
-  flex-direction: column;
-}
-
-.bill-item-row {
-  display: flex;
-  justify-content: space-between;
+  flex-direction: row;
   align-items: center;
-  padding: 12px 20px;
-  border-bottom: 1px solid #f1f5f9;
+  justify-content: space-between;
+  padding: 14px 20px;
+  flex-shrink: 0;
+  border-bottom: 2px solid #e2e8f0;
+  box-sizing: border-box;
+  background: #ffffff;
+}
+
+.heads h3 {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #64748b;
+  font-weight: 600;
+}
+
+#n { width: 50%; text-align: left; }
+#q { text-align: center; width: 15%; }
+#p { text-align: right; width: 35%; }
+
+.bills {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  width: 100%;
+  padding: 0 20px;
+  box-sizing: border-box;
+}
+
+.bdata {
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 4px;
+  font-size: 0.9rem;
   cursor: pointer;
+  border-bottom: 1px solid #f1f5f9;
   transition: background 0.15s;
 }
 
-.bill-item-row:hover {
-  background: #fef2f2;
+.bdata:hover { 
+  background: rgba(239, 68, 68, 0.05); 
+  border-radius: 6px;
 }
 
-.item-name-wrap {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 50%;
-}
-
-.remove-hint {
-  color: #ef4444;
-  font-weight: bold;
-  font-size: 1rem;
-  opacity: 0;
-  transition: opacity 0.15s;
-}
-
-.bill-item-row:hover .remove-hint {
-  opacity: 1;
-}
-
-.item-name {
-  margin: 0;
-  font-size: 0.9rem;
-  color: #334155;
-  font-weight: 500;
-  overflow: hidden;
+.n { 
+  width: 50%; 
+  text-align: left; 
+  overflow: hidden; 
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: #334155;
+  font-weight: 500;
 }
 
-.item-qty {
-  width: 15%;
-  text-align: center;
-  margin: 0;
+.q { 
+  overflow: hidden; 
+  text-align: center; 
+  width: 15%; 
   color: #64748b;
-  font-size: 0.9rem;
 }
 
-.item-price {
-  width: 35%;
-  text-align: right;
-  margin: 0;
-  color: #0f172a;
+.p { 
+  overflow: hidden; 
+  text-align: right; 
+  width: 35%; 
+  color: #1e293b;
   font-weight: 600;
-  font-size: 0.9rem;
 }
 
-/* ================= BILL FOOTER & CALCULATIONS ================= */
-.bill-footer {
+.last {
+  position: sticky;
+  bottom: 0;
   background: #f8fafc;
   border-top: 1px solid #e2e8f0;
-  padding: 16px 20px;
+  padding: 18px 20px;
   flex-shrink: 0;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  margin-bottom: 40px; /* Space for sticky footer */
-}
-
-.selectors-grid {
-  display: flex;
-  gap: 10px;
-}
-
-.select-group {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.select-group label {
-  font-size: 0.75rem;
-  font-weight: 700;
-  color: #64748b;
-  text-transform: uppercase;
-}
-
-.select-group select {
-  padding: 8px;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  background: #ffffff;
-  color: #0f172a;
-  font-size: 0.9rem;
-  font-weight: 600;
-  outline: none;
-  cursor: pointer;
-}
-
-.select-group select:focus {
-  border-color: #0284c7;
-  box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.15);
-}
-
-.calc-block {
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  padding: 10px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
 }
 
 .calc-row {
   display: flex;
-  justify-content: space-between;
+  flex-direction: row;
   align-items: center;
-  font-size: 0.9rem;
+  justify-content: space-between;
+  width: 100%;
+  font-size: 0.95rem;
   color: #475569;
+  font-weight: 500;
 }
 
-.calc-val {
+.read-only-row {
+  background: #e2e8f0;
+  padding: 8px 12px;
+  border-radius: 8px;
+}
+
+.badge-text {
   font-weight: 600;
-  color: #0f172a;
+  color: #041528;
 }
 
-.input-row input {
-  width: 70px;
-  padding: 4px 8px;
-  text-align: center;
+.last span {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  font-size: 0.95rem;
+  color: #475569;
+  font-weight: 500;
+}
+
+.input-span input { 
+  width: 70px; 
+  padding: 6px;
+  text-align: center; 
   border: 1px solid #cbd5e1;
-  border-radius: 6px;
+  border-radius: 8px;
   font-size: 0.9rem;
   background: #ffffff;
-  color: #0f172a;
+  color: #1e293b;
   outline: none;
 }
 
-.input-row input:focus {
-  border-color: #0284c7;
-  box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.15);
+.input-span input:focus {
+  border-color: #0077B6;
+  box-shadow: 0 0 0 3px rgba(0, 119, 182, 0.15);
 }
 
-.total-row {
+.total-span {
+  font-size: 1.2rem !important;
+  font-weight: 700 !important;
+  color: #041528 !important;
   border-top: 1px dashed #cbd5e1;
-  padding-top: 8px;
-  margin-top: 2px;
-  font-size: 1.1rem;
-  font-weight: 700;
-  color: #0f172a;
+  padding-top: 10px;
+  margin-top: 4px;
 }
 
-.total-val {
-  color: #0284c7;
-  font-size: 1.2rem;
-}
-
-/* Action Buttons */
 .action-buttons {
   display: flex;
   gap: 10px;
   width: 100%;
+  margin-top: 6px;
 }
 
-.action-btn {
-  flex: 1;
-  padding: 12px;
+button {
+  padding: 10px 14px;
   font-size: 0.95rem;
   font-weight: 600;
   border: none;
   border-radius: 8px;
   cursor: pointer;
-  transition: background 0.2s, transform 0.1s;
+  transition: background-color 0.2s, transform 0.1s;
 }
 
-.action-btn:active {
+button:active {
   transform: scale(0.98);
+}
+
+.head button {
+  background: #0284c7;
+  color: #ffffff;
+  padding: 6px 12px;
+  font-size: 0.85rem;
+}
+
+.head button:hover {
+  background: #0369a1;
 }
 
 .reject-btn {
   background-color: #ef4444;
   color: #ffffff;
+  width: 50%;
+  padding: 12px;
 }
 
 .reject-btn:hover {
@@ -887,136 +729,36 @@ html, body {
 }
 
 .pay-btn {
-  background-color: #0284c7;
+  background-color: #0077B6;
   color: #ffffff;
+  width: 50%;
+  padding: 12px;
 }
 
 .pay-btn:hover {
-  background-color: #0369a1;
+  background-color: #026094;
 }
 
-.action-btn:disabled {
+button:disabled {
   background-color: #94a3b8;
   cursor: not-allowed;
   transform: none;
 }
 
-/* ================= STICKY BOTTOM SUMMARY BAR (z-index: 99) ================= */
-.sticky-cart-summary {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  width: 100vw;
-  height: 48px;
-  background: #0f172a;
-  color: #ffffff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 99;
-  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.15);
-  border-top: 1px solid #1e293b;
-}
-
-.summary-content {
-  width: 100%;
-  max-width: 1200px;
-  padding: 0 24px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.summary-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.9rem;
-}
-
-.summary-item .s-label {
-  color: #94a3b8;
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  font-weight: 600;
-}
-
-.summary-item .s-val {
-  color: #ffffff;
-  font-weight: 600;
-}
-
-.summary-item .badge {
-  background: #0284c7;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 0.75rem;
-}
-
-.total-summary {
-  background: #1e293b;
-  padding: 4px 12px;
-  border-radius: 6px;
-  border: 1px solid #334155;
-}
-
-.summary-item .s-val-total {
-  color: #38bdf8;
-  font-weight: 700;
-  font-size: 1.05rem;
-}
-
-/* Common State Boxes (Loading / Empty) */
-.state-box {
-  padding: 40px 20px;
-  text-align: center;
-  color: #94a3b8;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  height: 100%;
-  font-size: 0.95rem;
-}
-
-.empty-bill {
-  background: #f8fafc;
-  border: 2px dashed #e2e8f0;
-  margin: 20px;
-  border-radius: 12px;
-}
-
-.empty-icon {
-  font-size: 2rem;
-}
-
-.spinner {
-  width: 28px;
-  height: 28px;
-  border: 3px solid #e2e8f0;
-  border-top-color: #0284c7;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-.pending-list-container::-webkit-scrollbar,
-.bill-items-container::-webkit-scrollbar {
+/* Slim Custom Scrollbar */
+.pending-list::-webkit-scrollbar,
+.bills::-webkit-scrollbar {
   width: 6px;
 }
 
-.pending-list-container::-webkit-scrollbar-thumb,
-.bill-items-container::-webkit-scrollbar-thumb {
+.pending-list::-webkit-scrollbar-thumb,
+.bills::-webkit-scrollbar-thumb {
   background: #cbd5e1;
   border-radius: 10px;
 }
 
-.pending-list-container::-webkit-scrollbar-thumb:hover,
-.bill-items-container::-webkit-scrollbar-thumb:hover {
+.pending-list::-webkit-scrollbar-thumb:hover,
+.bills::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
 </style>
