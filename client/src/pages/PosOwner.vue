@@ -59,6 +59,10 @@
         <LineChart />
       </div>
 
+      <div class="Expence_manger card-panel">
+        <ExpenceManager/>
+      </div>
+
       <!-- Extradata Section: Logs & Trends -->
       <div class="extradata">
         <div class="logs card-panel">
@@ -194,7 +198,7 @@ import InventoryManager from '../components/InventoryManager.vue';
 import MyBill from '../components/MyBill.vue';
 import OwnerActions from '../components/OwnerActions.vue';
 import PastOrders from '../components/PastOrders.vue';
-
+import ExpenceManager from '../components/ExpenceManager'
 const router = useRouter();
 const Token = ref(sessionStorage.getItem('userToken'));
 const shopId = ref(sessionStorage.getItem('shopId'));
