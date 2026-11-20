@@ -198,7 +198,7 @@ import InventoryManager from '../components/InventoryManager.vue';
 import MyBill from '../components/MyBill.vue';
 import OwnerActions from '../components/OwnerActions.vue';
 import PastOrders from '../components/PastOrders.vue';
-import ExpenceManager from '../components/ExpenceManager'
+import ExpenceManager from '../components/ExpenceManager.vue'
 const router = useRouter();
 const Token = ref(sessionStorage.getItem('userToken'));
 const shopId = ref(sessionStorage.getItem('shopId'));
