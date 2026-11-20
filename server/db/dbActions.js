@@ -278,6 +278,7 @@ saveLogData: async (username, reason, usertype, status) => {
     },
     // 1. Fetch expenses for a shop (with optional date, category, or search filter)
     // 1. Fetch expenses for a shop (with optional date, category, or search filter)
+    // Helper to map role/usertype cleanly when needed
     fetchShopExpenses: async (shopId, filters = {}) => {
         try {
             const { date = '', category = '', search = '' } = filters || {};
@@ -287,7 +288,10 @@ saveLogData: async (username, reason, usertype, status) => {
                     eid AS id,
                     sid AS shop_id,
                     uid,
-                    recorded_by AS recordedBy,
+                    CASE
+                        WHEN LOWER(TRIM(COALESCE(recorded_by, ''))) = 'owner' THEN 'shop Owner'
+                        ELSE COALESCE(NULLIF(TRIM(recorded_by), ''), 'Staff')
+                    END AS recordedBy,
                     DATE_FORMAT(expense_date, '%Y-%m-%d') AS date,
                     category,
                     cost_type AS costType,
@@ -343,17 +347,22 @@ saveLogData: async (username, reason, usertype, status) => {
             }
 
             const uid = typeof userUid === 'object' && userUid !== null ? userUid.uid : userUid;
-            let actorName = (typeof userUid === 'object' && userUid?.name) || expenseData.recordedBy || 'Staff';
+            let actorName = (typeof userUid === 'object' && userUid?.name) || 'Staff';
             let validUid = null;
 
             if (uid && uid !== 'null' && uid !== 'undefined') {
                 const [userRows] = await db.query(
-                    `SELECT uid, name, username FROM users WHERE uid = ? LIMIT 1`,
+                    `SELECT uid, name, username, usertype FROM users WHERE uid = ? LIMIT 1`,
                     [uid]
                 );
                 if (userRows.length > 0) {
-                    validUid = userRows[0].uid;
-                    actorName = userRows[0].name || userRows[0].username || actorName;
+                    const u = userRows[0];
+                    validUid = u.uid;
+                    const lowerType = String(u.usertype || '').trim().toLowerCase();
+                    actorName =
+                        u.name ||
+                        u.username ||
+                        (lowerType === 'owner' ? 'shop Owner' : 'Staff');
                 }
             }
 
@@ -470,6 +479,26 @@ saveLogData: async (username, reason, usertype, status) => {
             };
         } catch (error) {
             throw new Error(`[DB Error] Save expense failed: ${error.message}`);
+        }
+    },
+
+    // 3. Delete an expense row in MySQL
+    deleteShopExpense: async (shopId, expenseId) => {
+        try {
+            if (!shopId || shopId === 'null' || shopId === 'undefined') {
+                throw new Error('Missing valid shopId');
+            }
+            if (!expenseId) {
+                throw new Error('Missing expenseId');
+            }
+
+            const [result] = await db.query(
+                `DELETE FROM expenses WHERE eid = ? AND sid = ?`,
+                [expenseId, shopId]
+            );
+            return result.affectedRows > 0;
+        } catch (error) {
+            throw new Error(`[DB Error] Delete expense failed: ${error.message}`);
         }
     },
     terminatePosOwner: async (shopId) => {

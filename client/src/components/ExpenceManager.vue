@@ -273,7 +273,9 @@ import { link } from '../assets/Link';
 const emit = defineEmits(['expense-created', 'expense-updated', 'expense-deleted']);
 const router = useRouter();
 
+// userToken holds the logged-in user's uid
 const Token = sessionStorage.getItem('userToken');
+const userUid = sessionStorage.getItem('userToken');
 const shopId = sessionStorage.getItem('shopId') || sessionStorage.getItem('shopid');
 
 const paymentMethods = [
@@ -310,6 +312,28 @@ const expenses = ref([]);
 const loading = ref(false);
 const saving = ref(false);
 
+const buildAuthHeaders = (includeJson = true) => {
+  const headers = {
+    'Authorization': `Bearer ${Token || ''}`,
+    'shop-id': shopId || '',
+    'uid': userUid || '',
+    'client-uid': userUid || ''
+  };
+  if (includeJson) {
+    headers['Content-Type'] = 'application/json';
+  }
+  return headers;
+};
+
+const parseJsonSafely = async (res) => {
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`Expected JSON response, received: ${text.slice(0, 80)}`);
+  }
+};
+
 // 1. Fetch expenses from backend server
 async function fetchExpenses() {
   try {
@@ -317,20 +341,18 @@ async function fetchExpenses() {
 
     const res = await fetch(`${link}/expenses`, {
       method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${Token}`,
-        'shop-id': shopId,
-        'Content-Type': 'application/json'
-      }
+      headers: buildAuthHeaders(true)
     });
 
-    if (!res.ok) throw new Error(`API Error: ${res.status}`);
+    const result = await parseJsonSafely(res);
+    if (!res.ok) {
+      throw new Error(result.error || `API Error: ${res.status}`);
+    }
 
-    const result = await res.json();
     const list = Array.isArray(result) ? result : (result.expenses || []);
 
     expenses.value = list.map((row, idx) => ({
-      id: row.id ?? row.expense_id ?? `EXP-${String(idx + 1).padStart(3, '0')}`,
+      id: row.id ?? row.eid ?? row.expense_id ?? `EXP-${String(idx + 1).padStart(3, '0')}`,
       date: (row.date || row.expense_date || todayStr).slice(0, 10),
       category: row.category || 'Raw Ingredients (COGS)',
       costType: row.costType || row.cost_type || 'Variable',
@@ -362,6 +384,9 @@ async function saveExpense(expenseRow, action = 'update') {
 
   const payload = {
     shopId: shopId,
+    uid: userUid,
+    clientUid: userUid,
+    actorUid: userUid,
     id: expenseRow.id,
     date: expenseRow.date,
     category: expenseRow.category,
@@ -378,24 +403,18 @@ async function saveExpense(expenseRow, action = 'update') {
   try {
     const res = await fetch(endpoint, {
       method,
-      headers: {
-        'Authorization': `Bearer ${Token}`,
-        'shop-id': shopId,
-        'Content-Type': 'application/json'
-      },
+      headers: buildAuthHeaders(!isDelete),
       body: isDelete ? undefined : JSON.stringify(payload)
     });
 
+    const result = await parseJsonSafely(res);
     if (!res.ok) {
-      const errData = await res.json().catch(() => ({}));
-      throw new Error(errData.error || `Save failed: ${res.status}`);
+      throw new Error(result.error || `Save failed: ${res.status}`);
     }
 
-    const result = await res.json().catch(() => ({}));
-
     if (action === 'create') {
-      if (result.id || result.expense_id) {
-        expenseRow.id = result.id || result.expense_id;
+      if (result.id || result.eid || result.expense_id) {
+        expenseRow.id = result.id || result.eid || result.expense_id;
       }
       if (result.recordedBy || result.recorded_by || result.created_by) {
         expenseRow.recordedBy = result.recordedBy || result.recorded_by || result.created_by;
@@ -404,12 +423,16 @@ async function saveExpense(expenseRow, action = 'update') {
     } else if (action === 'delete') {
       emit('expense-deleted', expenseRow.id);
     } else {
+      if (result.recordedBy || result.recorded_by) {
+        expenseRow.recordedBy = result.recordedBy || result.recorded_by;
+      }
       emit('expense-updated', expenseRow);
     }
 
     return result;
   } catch (err) {
     console.error('Failed to save expense to server:', err);
+    throw err;
   }
 }
 
@@ -528,14 +551,22 @@ const addExpense = async () => {
 
   try {
     await saveExpense(created, 'create');
+    await fetchExpenses();
+  } catch {
+    expenses.value = expenses.value.filter((e) => e.id !== tempId);
   } finally {
     saving.value = false;
   }
 };
 
 const removeExpense = async (item) => {
+  const previousList = [...expenses.value];
   expenses.value = expenses.value.filter((e) => e.id !== item.id);
-  await saveExpense(item, 'delete');
+  try {
+    await saveExpense(item, 'delete');
+  } catch {
+    expenses.value = previousList;
+  }
 };
 
 const totalSpent = computed(() =>

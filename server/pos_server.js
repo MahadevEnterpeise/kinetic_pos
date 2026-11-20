@@ -706,7 +706,7 @@ router.post('/user-me', async (req, res) => {
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
-//----Expence Manager----
+// ---- Expense Manager ----
 // API 1: Fetch shop expenses (supports optional query filters: ?date=&category=&search=)
 router.get('/expenses', resolveActorContext, async (req, res) => {
     try {
@@ -732,20 +732,21 @@ router.get('/expenses', resolveActorContext, async (req, res) => {
 // API 2: Create or update an expense row from frontend inline edits / new row
 router.post('/expenses', resolveActorContext, async (req, res) => {
     try {
-        const shopId = req.headers['shop-id'] || req.body.shopId;
-        const expensePayload = req.body;
+        const shopId = req.headers['shop-id'] || req.body?.shopId;
+        const expensePayload = req.body || {};
 
-        if (!shopId || !expensePayload?.item) {
+        if (!shopId || !String(expensePayload.item || '').trim()) {
             return res.status(400).json({ error: 'Missing parameters' });
         }
 
         const actorInfo = req.actorInfo || { name: 'Staff', role: 'staff', uid: null };
         const result = await dbActions.saveShopExpense(shopId, expensePayload, actorInfo);
 
-        const { name: actor, role } = actorInfo;
+        const actor = result.recordedBy || actorInfo.name || 'Staff';
+        const role = actorInfo.role || 'staff';
         const actionType = result.updated ? 'UPDATE_EXPENSE' : 'CREATE_EXPENSE';
         const alertTitle = result.updated ? 'Expense Updated' : 'Expense Added';
-        const details = `${actor} ${result.updated ? 'updated' : 'added'} expense "${expensePayload.item}" (${Number(expensePayload.amount || 0).toFixed(2)}) [${result.id}]`;
+        const details = `${actor} ${result.updated ? 'updated' : 'added'} expense "${expensePayload.item.trim()}" (${Number(expensePayload.amount || 0).toFixed(2)}) [${result.id}]`;
 
         await dbActions.saveAuditLog(shopId, actor, role, 'EXPENSES', actionType, details);
         broadcastAuditAlert(shopId, alertTitle, details, actor, role);
@@ -763,21 +764,22 @@ router.post('/expenses', resolveActorContext, async (req, res) => {
     }
 });
 
-// Optional companion routes if your frontend calls PUT /expenses/:id or DELETE /expenses/:id
+// PUT /expenses/:id: Update an existing expense row
 router.put('/expenses/:id', resolveActorContext, async (req, res) => {
     try {
-        const shopId = req.headers['shop-id'] || req.body.shopId;
-        const expensePayload = { ...req.body, id: req.params.id };
+        const shopId = req.headers['shop-id'] || req.body?.shopId;
+        const expensePayload = { ...(req.body || {}), id: req.params.id };
 
-        if (!shopId || !req.params.id) {
+        if (!shopId || !req.params.id || !String(expensePayload.item || '').trim()) {
             return res.status(400).json({ error: 'Missing parameters' });
         }
 
         const actorInfo = req.actorInfo || { name: 'Staff', role: 'staff', uid: null };
         const result = await dbActions.saveShopExpense(shopId, expensePayload, actorInfo);
 
-        const { name: actor, role } = actorInfo;
-        const details = `${actor} edited expense #${req.params.id} (${expensePayload.item || ''}, ${expensePayload.status || ''})`;
+        const actor = result.recordedBy || actorInfo.name || 'Staff';
+        const role = actorInfo.role || 'staff';
+        const details = `${actor} edited expense #${req.params.id} (${expensePayload.item.trim()}, ${expensePayload.status || 'Paid'})`;
 
         await dbActions.saveAuditLog(shopId, actor, role, 'EXPENSES', 'UPDATE_EXPENSE', details);
         broadcastAuditAlert(shopId, 'Expense Updated', details, actor, role);
@@ -794,9 +796,10 @@ router.put('/expenses/:id', resolveActorContext, async (req, res) => {
     }
 });
 
+// DELETE /expenses/:id: Delete an expense row
 router.delete('/expenses/:id', resolveActorContext, async (req, res) => {
     try {
-        const shopId = req.headers['shop-id'];
+        const shopId = req.headers['shop-id'] || req.body?.shopId || req.query?.shopId;
         const expenseId = req.params.id;
 
         if (!shopId || !expenseId) {
@@ -805,7 +808,9 @@ router.delete('/expenses/:id', resolveActorContext, async (req, res) => {
 
         await dbActions.deleteShopExpense(shopId, expenseId);
 
-        const { name: actor, role } = req.actorInfo || { name: 'Staff', role: 'staff' };
+        const actorInfo = req.actorInfo || { name: 'Staff', role: 'staff', uid: null };
+        const actor = actorInfo.name || 'Staff';
+        const role = actorInfo.role || 'staff';
         const details = `${actor} deleted expense #${expenseId}`;
 
         await dbActions.saveAuditLog(shopId, actor, role, 'EXPENSES', 'DELETE_EXPENSE', details);
@@ -817,7 +822,6 @@ router.delete('/expenses/:id', resolveActorContext, async (req, res) => {
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
-
 // --- Reviews & Feedback ---
 router.post('/review', async (req, res) => {
     try {
