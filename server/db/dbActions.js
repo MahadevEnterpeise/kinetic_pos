@@ -276,7 +276,201 @@ saveLogData: async (username, reason, usertype, status) => {
             throw new Error(`[DB Error] Search processing failed: ${error.message}`);
         }
     },
+    // 1. Fetch expenses for a shop (with optional date, category, or search filter)
+fetchShopExpenses: async (db, shopId, filters = {}) => {
+    try {
+        const { date = '', category = '', search = '' } = filters || {};
 
+        let queryText = `
+            SELECT
+                eid AS id,
+                sid AS shop_id,
+                uid,
+                recorded_by AS recordedBy,
+                DATE_FORMAT(expense_date, '%Y-%m-%d') AS date,
+                category,
+                cost_type AS costType,
+                item,
+                vendor,
+                qty_unit AS qtyUnit,
+                amount,
+                payment_method AS paymentMethod,
+                status,
+                ref_no AS refNo,
+                created_at,
+                updated_at
+            FROM expenses
+            WHERE 1=1
+        `;
+        const params = [];
+
+        if (shopId && shopId !== 'null' && shopId !== 'undefined' && shopId !== 'GLOBAL') {
+            queryText += ` AND sid = ?`;
+            params.push(shopId);
+        }
+
+        if (date && date.trim() !== '') {
+            queryText += ` AND expense_date = ?`;
+            params.push(date.trim());
+        }
+
+        if (category && category.trim() !== '' && category !== 'ALL') {
+            queryText += ` AND category = ?`;
+            params.push(category.trim());
+        }
+
+        if (search && search.trim() !== '') {
+            const pattern = `%${search.trim()}%`;
+            queryText += ` AND (category LIKE ? OR recorded_by LIKE ? OR item LIKE ? OR vendor LIKE ? OR eid LIKE ?)`;
+            params.push(pattern, pattern, pattern, pattern, pattern);
+        }
+
+        queryText += ` ORDER BY (expense_date = CURDATE()) DESC, (expense_date = DATE_SUB(CURDATE(), INTERVAL 1 DAY)) DESC, expense_date DESC, created_at DESC`;
+
+        const [rows] = await db.query(queryText, params);
+        return rows;
+    } catch (error) {
+        throw new Error(`[DB Error] Fetch expenses failed: ${error.message}`);
+    }
+},
+
+// 2. Create or edit an expense row in MySQL (server resolves "who" from userUid)
+saveShopExpense: async (db, shopId, expenseData = {}, userUid = null) => {
+    try {
+        if (!shopId || shopId === 'null' || shopId === 'undefined') {
+            throw new Error('Missing valid shopId');
+        }
+
+        let actorName = expenseData.recordedBy || 'Staff';
+        let validUid = null;
+
+        if (userUid && userUid !== 'null' && userUid !== 'undefined') {
+            const [userRows] = await db.query(
+                `SELECT uid, name, username FROM users WHERE uid = ? LIMIT 1`,
+                [userUid]
+            );
+            if (userRows.length > 0) {
+                validUid = userRows[0].uid;
+                actorName = userRows[0].name || userRows[0].username || actorName;
+            }
+        }
+
+        const eid = expenseData.id || expenseData.eid || null;
+        const expenseDate = expenseData.date || expenseData.expense_date || new Date().toISOString().slice(0, 10);
+        const category = expenseData.category || 'Raw Ingredients (COGS)';
+        const costType = expenseData.costType || expenseData.cost_type || 'Variable';
+        const item = (expenseData.item || '').trim();
+        const vendor = (expenseData.vendor || 'Direct Purchase').trim();
+        const qtyUnit = (expenseData.qtyUnit || expenseData.qty_unit || '1 unit').trim();
+        const amount = Number(expenseData.amount) || 0;
+        const paymentMethod = expenseData.paymentMethod || expenseData.payment_method || 'Cash Drawer';
+        const status = expenseData.status || 'Paid';
+        const refNo = (expenseData.refNo || expenseData.ref_no || '—').trim();
+
+        if (!item) {
+            throw new Error('Expense item description is required');
+        }
+
+        // Check if record already exists in this shop -> UPDATE, otherwise INSERT
+        let exists = false;
+        if (eid) {
+            const [existing] = await db.query(
+                `SELECT eid FROM expenses WHERE eid = ? AND sid = ? LIMIT 1`,
+                [eid, shopId]
+            );
+            exists = existing.length > 0;
+        }
+
+        if (exists) {
+            await db.query(
+                `
+                UPDATE expenses
+                SET
+                    expense_date = ?,
+                    category = ?,
+                    cost_type = ?,
+                    item = ?,
+                    vendor = ?,
+                    qty_unit = ?,
+                    amount = ?,
+                    payment_method = ?,
+                    status = ?,
+                    ref_no = ?
+                WHERE eid = ? AND sid = ?
+                `,
+                [
+                    expenseDate,
+                    category,
+                    costType,
+                    item,
+                    vendor,
+                    qtyUnit,
+                    amount,
+                    paymentMethod,
+                    status,
+                    refNo,
+                    eid,
+                    shopId
+                ]
+            );
+
+            return {
+                id: eid,
+                recordedBy: actorName,
+                updated: true
+            };
+        }
+
+        const newEid = eid && !String(eid).startsWith('TEMP-')
+            ? eid
+            : `EXP-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+
+        await db.query(
+            `
+            INSERT INTO expenses (
+                eid,
+                sid,
+                uid,
+                recorded_by,
+                expense_date,
+                category,
+                cost_type,
+                item,
+                vendor,
+                qty_unit,
+                amount,
+                payment_method,
+                status,
+                ref_no
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `,
+            [
+                newEid,
+                shopId,
+                validUid,
+                actorName,
+                expenseDate,
+                category,
+                costType,
+                item,
+                vendor,
+                qtyUnit,
+                amount,
+                paymentMethod,
+                status,
+                refNo
+            ]
+        );
+
+        return {
+            id: newEid,
+            recordedBy: actorName,
+            created: true
+        };
+    } catch (error) {
+        throw new Error(`[DB Error] Save expense failed: ${error.message}`);
+    }
+},
     terminatePosOwner: async (shopId) => {
         try {
             await db.query(`DELETE FROM shopbill WHERE sid = ?`, [shopId]);
