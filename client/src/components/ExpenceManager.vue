@@ -109,6 +109,7 @@
                 type="text"
                 class="cell-input"
                 placeholder="e.g. 5 kg"
+                @change="saveExpense(item, 'update')"
               />
             </td>
 
@@ -120,12 +121,17 @@
                 min="0"
                 step="0.01"
                 class="cell-input amount-input"
+                @change="saveExpense(item, 'update')"
               />
             </td>
 
             <!-- Editable Payment Method -->
             <td data-label="Payment Method" class="col-method">
-              <select v-model="item.paymentMethod" class="cell-select">
+              <select
+                v-model="item.paymentMethod"
+                class="cell-select"
+                @change="saveExpense(item, 'update')"
+              >
                 <option v-for="method in paymentMethods" :key="method" :value="method">
                   {{ method }}
                 </option>
@@ -138,6 +144,7 @@
                 v-model="item.status"
                 class="cell-select status-select"
                 :class="item.status.toLowerCase()"
+                @change="saveExpense(item, 'update')"
               >
                 <option value="Paid">Paid</option>
                 <option value="Pending">Pending</option>
@@ -150,14 +157,14 @@
                 type="button"
                 class="btn-icon btn-delete"
                 title="Remove row"
-                @click="removeExpense(item.id)"
+                @click="removeExpense(item)"
               >
                 ✕
               </button>
             </td>
           </tr>
 
-          <!-- Always-Visible Empty Row to Add New Expense ("who" is assigned by backend when connected) -->
+          <!-- Always-Visible Empty Row to Add New Expense ("who" is assigned by backend) -->
           <tr class="new-entry-row">
             <td data-label="Date">
               <div class="new-badge">NEW</div>
@@ -245,10 +252,10 @@
               <button
                 type="button"
                 class="btn-add"
-                :disabled="!canAdd"
+                :disabled="!canAdd || saving"
                 @click="addExpense"
               >
-                + Add
+                {{ saving ? '...' : '+ Add' }}
               </button>
             </td>
           </tr>
@@ -259,17 +266,15 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed } from 'vue';
-
-const props = defineProps({
-  // Optional current user passed by parent/session until backend attaches it automatically
-  currentActor: {
-    type: String,
-    default: 'Auto (Session User)'
-  }
-});
+import { onMounted, ref, reactive, computed } from 'vue';
+import { useRouter } from 'vue-router';
+import { link } from '../assets/Link';
 
 const emit = defineEmits(['expense-created', 'expense-updated', 'expense-deleted']);
+const router = useRouter();
+
+const Token = sessionStorage.getItem('userToken');
+const shopId = sessionStorage.getItem('shopId') || sessionStorage.getItem('shopid');
 
 const paymentMethods = [
   'Cash Drawer',
@@ -289,7 +294,6 @@ const categories = [
   'Rent & Other'
 ];
 
-// Helper to get YYYY-MM-DD offset by N days from local date
 const getOffsetDate = (daysAgo = 0) => {
   const d = new Date();
   d.setDate(d.getDate() - daysAgo);
@@ -302,93 +306,120 @@ const getOffsetDate = (daysAgo = 0) => {
 const todayStr = getOffsetDate(0);
 const yesterdayStr = getOffsetDate(1);
 
-// Local Mock Data across Today, Yesterday, and older days
-const expenses = ref([
-  {
-    id: 'EXP-001',
-    date: todayStr,
-    category: 'Raw Ingredients (COGS)',
-    costType: 'Variable',
-    item: 'Fresh Chicken & Vegetables',
-    vendor: 'Central Market Wholesale',
-    qtyUnit: '15 kg',
-    amount: 18500.0,
-    paymentMethod: 'Cash Drawer',
-    status: 'Paid',
-    recordedBy: 'Cashier 1',
-    refNo: 'INV-8841'
-  },
-  {
-    id: 'EXP-002',
-    date: todayStr,
-    category: 'Packaging & Supplies',
-    costType: 'Variable',
-    item: 'Takeaway Boxes & Kraft Bags',
-    vendor: 'PackMart Lanka',
-    qtyUnit: '500 pcs',
-    amount: 6200.0,
-    paymentMethod: 'Bank Transfer',
-    status: 'Paid',
-    recordedBy: 'Manager',
-    refNo: 'TXN-44920'
-  },
-  {
-    id: 'EXP-003',
-    date: yesterdayStr,
-    category: 'Retail Stock (COGS)',
-    costType: 'Variable',
-    item: 'Bottled Beverages (Restock)',
-    vendor: 'Lanka Beverage Distributors',
-    qtyUnit: '10 cases',
-    amount: 14000.0,
-    paymentMethod: 'Supplier Credit',
-    status: 'Pending',
-    recordedBy: 'Manager',
-    refNo: 'PO-102'
-  },
-  {
-    id: 'EXP-004',
-    date: yesterdayStr,
-    category: 'Maintenance & Repairs',
-    costType: 'Variable',
-    item: 'POS Thermal Printer Repair',
-    vendor: 'TechFix Solutions',
-    qtyUnit: '1 service',
-    amount: 2500.0,
-    paymentMethod: 'Petty Cash',
-    status: 'Paid',
-    recordedBy: 'Cashier 2',
-    refNo: 'REC-019'
-  },
-  {
-    id: 'EXP-005',
-    date: getOffsetDate(3),
-    category: 'Utilities',
-    costType: 'Fixed',
-    item: 'Electricity Bill',
-    vendor: 'CEB',
-    qtyUnit: '1 bill',
-    amount: 24800.0,
-    paymentMethod: 'Online Card',
-    status: 'Paid',
-    recordedBy: 'Owner',
-    refNo: 'CEB-9921'
-  },
-  {
-    id: 'EXP-006',
-    date: getOffsetDate(5),
-    category: 'Staff & Payroll',
-    costType: 'Fixed',
-    item: 'Weekly Shift Allowance',
-    vendor: 'Internal',
-    qtyUnit: '3 staff',
-    amount: 9000.0,
-    paymentMethod: 'Cash Drawer',
-    status: 'Paid',
-    recordedBy: 'Manager',
-    refNo: '—'
+const expenses = ref([]);
+const loading = ref(false);
+const saving = ref(false);
+
+// 1. Fetch expenses from backend server
+async function fetchExpenses() {
+  try {
+    loading.value = true;
+
+    const res = await fetch(`${link}/expenses`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${Token}`,
+        'shop-id': shopId,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!res.ok) throw new Error(`API Error: ${res.status}`);
+
+    const result = await res.json();
+    const list = Array.isArray(result) ? result : (result.expenses || []);
+
+    expenses.value = list.map((row, idx) => ({
+      id: row.id ?? row.expense_id ?? `EXP-${String(idx + 1).padStart(3, '0')}`,
+      date: (row.date || row.expense_date || todayStr).slice(0, 10),
+      category: row.category || 'Raw Ingredients (COGS)',
+      costType: row.costType || row.cost_type || 'Variable',
+      item: row.item || row.description || '',
+      vendor: row.vendor || 'Direct Purchase',
+      qtyUnit: row.qtyUnit || row.qty_unit || '1 unit',
+      amount: Number(row.amount) || 0,
+      paymentMethod: row.paymentMethod || row.payment_method || 'Cash Drawer',
+      status: row.status || 'Paid',
+      recordedBy: row.recordedBy || row.recorded_by || row.created_by || 'Staff',
+      refNo: row.refNo || row.ref_no || '—'
+    }));
+  } catch (err) {
+    console.error('Failed to load expenses from server:', err);
+  } finally {
+    loading.value = false;
   }
-]);
+}
+
+// 2. Send changes to backend server (create, update, or delete)
+async function saveExpense(expenseRow, action = 'update') {
+  if (!expenseRow) return;
+
+  const isDelete = action === 'delete';
+  const endpoint = action === 'create'
+    ? `${link}/expenses`
+    : `${link}/expenses/${encodeURIComponent(expenseRow.id)}`;
+  const method = isDelete ? 'DELETE' : action === 'create' ? 'POST' : 'PUT';
+
+  const payload = {
+    shopId: shopId,
+    id: expenseRow.id,
+    date: expenseRow.date,
+    category: expenseRow.category,
+    costType: expenseRow.costType,
+    item: expenseRow.item,
+    vendor: expenseRow.vendor,
+    qtyUnit: expenseRow.qtyUnit,
+    amount: Number(expenseRow.amount) || 0,
+    paymentMethod: expenseRow.paymentMethod,
+    status: expenseRow.status,
+    refNo: expenseRow.refNo
+  };
+
+  try {
+    const res = await fetch(endpoint, {
+      method,
+      headers: {
+        'Authorization': `Bearer ${Token}`,
+        'shop-id': shopId,
+        'Content-Type': 'application/json'
+      },
+      body: isDelete ? undefined : JSON.stringify(payload)
+    });
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || `Save failed: ${res.status}`);
+    }
+
+    const result = await res.json().catch(() => ({}));
+
+    if (action === 'create') {
+      if (result.id || result.expense_id) {
+        expenseRow.id = result.id || result.expense_id;
+      }
+      if (result.recordedBy || result.recorded_by || result.created_by) {
+        expenseRow.recordedBy = result.recordedBy || result.recorded_by || result.created_by;
+      }
+      emit('expense-created', expenseRow);
+    } else if (action === 'delete') {
+      emit('expense-deleted', expenseRow.id);
+    } else {
+      emit('expense-updated', expenseRow);
+    }
+
+    return result;
+  } catch (err) {
+    console.error('Failed to save expense to server:', err);
+  }
+}
+
+onMounted(async () => {
+  if (!Token) {
+    router.push('/');
+    return;
+  }
+  await fetchExpenses();
+});
 
 // Search & Day Filter State
 const searchQuery = ref('');
@@ -408,7 +439,7 @@ const clearFilters = () => {
   selectedDate.value = '';
 };
 
-// Order: Today first, Yesterday second, then descending date (newest past day first)
+// Order: Today first, Yesterday second, then descending date
 const sortedFilteredExpenses = computed(() => {
   const q = searchQuery.value.toLowerCase();
 
@@ -425,7 +456,7 @@ const sortedFilteredExpenses = computed(() => {
       item.recordedBy.toLowerCase().includes(q) ||
       item.item.toLowerCase().includes(q) ||
       item.vendor.toLowerCase().includes(q) ||
-      item.id.toLowerCase().includes(q);
+      String(item.id).toLowerCase().includes(q);
 
     return matchesCategory && matchesDate && matchesSearch;
   });
@@ -436,7 +467,7 @@ const sortedFilteredExpenses = computed(() => {
 
     if (rankA !== rankB) return rankA - rankB;
     if (a.date !== b.date) return b.date.localeCompare(a.date);
-    return b.id.localeCompare(a.id);
+    return String(b.id).localeCompare(String(a.id));
   });
 });
 
@@ -452,7 +483,6 @@ const getDayClass = (dateStr) => {
   return 'day-past';
 };
 
-// New Expense Row State (no manual "who" input; backend sets actor on save)
 const createBlankEntry = () => ({
   date: todayStr,
   category: 'Raw Ingredients (COGS)',
@@ -472,14 +502,14 @@ const canAdd = computed(() => {
   return newEntry.item.length > 0 && Number(newEntry.amount) > 0;
 });
 
-const addExpense = () => {
-  if (!canAdd.value) return;
+const addExpense = async () => {
+  if (!canAdd.value || saving.value) return;
 
-  const nextNum = expenses.value.length + 1;
-  const formattedId = `EXP-${String(nextNum).padStart(3, '0')}`;
+  saving.value = true;
+  const tempId = `TEMP-${Date.now()}`;
 
   const created = {
-    id: formattedId,
+    id: tempId,
     date: newEntry.date || todayStr,
     category: newEntry.category,
     costType: newEntry.costType,
@@ -489,22 +519,25 @@ const addExpense = () => {
     amount: Number(newEntry.amount),
     paymentMethod: newEntry.paymentMethod,
     status: newEntry.status,
-    recordedBy: props.currentActor,
+    recordedBy: 'Pending...',
     refNo: newEntry.refNo || '—'
   };
 
   expenses.value.push(created);
-  emit('expense-created', created);
-
   Object.assign(newEntry, createBlankEntry());
+
+  try {
+    await saveExpense(created, 'create');
+  } finally {
+    saving.value = false;
+  }
 };
 
-const removeExpense = (id) => {
-  expenses.value = expenses.value.filter((e) => e.id !== id);
-  emit('expense-deleted', id);
+const removeExpense = async (item) => {
+  expenses.value = expenses.value.filter((e) => e.id !== item.id);
+  await saveExpense(item, 'delete');
 };
 
-// Totals computed on visible/filtered list
 const totalSpent = computed(() =>
   sortedFilteredExpenses.value.reduce((sum, e) => sum + (Number(e.amount) || 0), 0)
 );
