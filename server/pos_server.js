@@ -706,6 +706,117 @@ router.post('/user-me', async (req, res) => {
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
+//----Expence Manager----
+// API 1: Fetch shop expenses (supports optional query filters: ?date=&category=&search=)
+router.get('/expenses', resolveActorContext, async (req, res) => {
+    try {
+        const shopId = req.headers['shop-id'] || req.query.shopId;
+        if (!shopId) {
+            return res.status(400).json({ error: 'Missing shop-id header' });
+        }
+
+        const filters = {
+            date: req.query.date || '',
+            category: req.query.category || '',
+            search: req.query.search || ''
+        };
+
+        const expenses = await dbActions.fetchShopExpenses(shopId, filters);
+        res.status(200).json({ expenses });
+    } catch (error) {
+        console.error('❌ Error fetching expenses:', error.message);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// API 2: Create or update an expense row from frontend inline edits / new row
+router.post('/expenses', resolveActorContext, async (req, res) => {
+    try {
+        const shopId = req.headers['shop-id'] || req.body.shopId;
+        const expensePayload = req.body;
+
+        if (!shopId || !expensePayload?.item) {
+            return res.status(400).json({ error: 'Missing parameters' });
+        }
+
+        const actorInfo = req.actorInfo || { name: 'Staff', role: 'staff', uid: null };
+        const result = await dbActions.saveShopExpense(shopId, expensePayload, actorInfo);
+
+        const { name: actor, role } = actorInfo;
+        const actionType = result.updated ? 'UPDATE_EXPENSE' : 'CREATE_EXPENSE';
+        const alertTitle = result.updated ? 'Expense Updated' : 'Expense Added';
+        const details = `${actor} ${result.updated ? 'updated' : 'added'} expense "${expensePayload.item}" (${Number(expensePayload.amount || 0).toFixed(2)}) [${result.id}]`;
+
+        await dbActions.saveAuditLog(shopId, actor, role, 'EXPENSES', actionType, details);
+        broadcastAuditAlert(shopId, alertTitle, details, actor, role);
+
+        res.status(200).json({
+            success: true,
+            id: result.id,
+            recordedBy: result.recordedBy,
+            updated: !!result.updated,
+            created: !!result.created
+        });
+    } catch (error) {
+        console.error('❌ Error saving expense:', error.message);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Optional companion routes if your frontend calls PUT /expenses/:id or DELETE /expenses/:id
+router.put('/expenses/:id', resolveActorContext, async (req, res) => {
+    try {
+        const shopId = req.headers['shop-id'] || req.body.shopId;
+        const expensePayload = { ...req.body, id: req.params.id };
+
+        if (!shopId || !req.params.id) {
+            return res.status(400).json({ error: 'Missing parameters' });
+        }
+
+        const actorInfo = req.actorInfo || { name: 'Staff', role: 'staff', uid: null };
+        const result = await dbActions.saveShopExpense(shopId, expensePayload, actorInfo);
+
+        const { name: actor, role } = actorInfo;
+        const details = `${actor} edited expense #${req.params.id} (${expensePayload.item || ''}, ${expensePayload.status || ''})`;
+
+        await dbActions.saveAuditLog(shopId, actor, role, 'EXPENSES', 'UPDATE_EXPENSE', details);
+        broadcastAuditAlert(shopId, 'Expense Updated', details, actor, role);
+
+        res.status(200).json({
+            success: true,
+            id: result.id,
+            recordedBy: result.recordedBy,
+            updated: true
+        });
+    } catch (error) {
+        console.error('❌ Error updating expense:', error.message);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.delete('/expenses/:id', resolveActorContext, async (req, res) => {
+    try {
+        const shopId = req.headers['shop-id'];
+        const expenseId = req.params.id;
+
+        if (!shopId || !expenseId) {
+            return res.status(400).json({ error: 'Missing parameters' });
+        }
+
+        await dbActions.deleteShopExpense(shopId, expenseId);
+
+        const { name: actor, role } = req.actorInfo || { name: 'Staff', role: 'staff' };
+        const details = `${actor} deleted expense #${expenseId}`;
+
+        await dbActions.saveAuditLog(shopId, actor, role, 'EXPENSES', 'DELETE_EXPENSE', details);
+        broadcastAuditAlert(shopId, 'Expense Deleted', details, actor, role);
+
+        res.status(200).json({ success: true });
+    } catch (error) {
+        console.error('❌ Error deleting expense:', error.message);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
 
 // --- Reviews & Feedback ---
 router.post('/review', async (req, res) => {
