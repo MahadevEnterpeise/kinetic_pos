@@ -188,6 +188,34 @@ created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 `);
 console.log('✅ audit table verified/created successfully.');
 
+// Create Expenses Table
+await db.query(`
+    CREATE TABLE IF NOT EXISTS expenses (
+      eid VARCHAR(50) PRIMARY KEY,
+      sid VARCHAR(50) NOT NULL,
+      uid VARCHAR(50) NULL,
+      recorded_by VARCHAR(100) NULL,
+      expense_date DATE NOT NULL,
+      category VARCHAR(100) NOT NULL,
+      cost_type VARCHAR(20) NOT NULL DEFAULT 'Variable',
+      item VARCHAR(255) NOT NULL,
+      vendor VARCHAR(150) DEFAULT 'Direct Purchase',
+      qty_unit VARCHAR(50) DEFAULT '1 unit',
+      amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      payment_method VARCHAR(50) NOT NULL DEFAULT 'Cash Drawer',
+      status VARCHAR(20) NOT NULL DEFAULT 'Paid',
+      ref_no VARCHAR(100) DEFAULT '—',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_shop_id (sid),
+      INDEX idx_expense_date (sid, expense_date),
+      INDEX idx_category (sid, category),
+      INDEX idx_user_id (uid)
+    )
+  `);
+  console.log('✅ Expenses table verified/created successfully.');
+
+
 // 8. Seed Default Kinetic Admin Account if not exists
 const [adminCheck] = await db.query(`SELECT uid FROM users WHERE usertype = 'kinetic_admin' LIMIT 1`);
 
