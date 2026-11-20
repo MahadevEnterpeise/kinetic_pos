@@ -28,6 +28,11 @@
 <QrBills/>
 
 </div>
+<div class="work1" v-if="selected && number === 4">
+
+<ExpenceManager/>
+
+</div>
 
 <div class="no" v-if="!selected">
 
@@ -69,6 +74,13 @@
 <p class="box-icon">⏳</p>
 
 <p class="box-label">Hold</p>
+
+</div>
+ <div class="box" :class="{ active: number === 4 }" @click="selectNew(4)">
+
+<p class="box-icon">🧾</p>
+
+<p class="box-label">Expence</p>
 
 </div>
 
@@ -178,6 +190,7 @@ import QrBills from '../components/QrBills.vue';
 
 import { link } from '../assets/Link.js';
 
+import ExpenceManager from '../components/ExpenceManager.vue'
 
 const selected = ref(false)
 
