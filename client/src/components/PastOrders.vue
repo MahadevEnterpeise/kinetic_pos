@@ -32,6 +32,11 @@
               <span class="bill-number">Bill #{{ order.billnum || order.id }}</span>
               <span class="order-total"><b>{{ Number(calculateOrderTotal(order)).toFixed(2) }} {{ currency }}</b></span>
             </div>
+            <div class="order-meta-row">
+              <span class="order-meta-pill">{{ order.orderType || 'Dine-In' }}</span>
+              <span class="order-meta-pill">{{ order.paymentType || 'Cash' }}</span>
+              <span v-if="order.note" class="order-meta-note">Note: {{ order.note }}</span>
+            </div>
             <div class="summary-bottom">
               <span class="order-date">{{ formatDate(order.date) }}</span>
               <span class="status-badge paid">Paid</span>
@@ -43,6 +48,9 @@
             <div class="actor-info">
               <div class="info-item"><span>Processed by:</span> <b>{{ order.staffName || order.actor || 'Cashier' }}</b></div>
               <div class="info-item"><span>Customer:</span> <b>{{ order.mobile || 'Walk-in' }}</b></div>
+              <div class="info-item"><span>Order Type:</span> <b>{{ order.orderType || 'Dine-In' }}</b></div>
+              <div class="info-item"><span>Payment Type:</span> <b>{{ order.paymentType || 'Cash' }}</b></div>
+              <div class="info-item"><span>Note:</span> <b>{{ order.note || 'None' }}</b></div>
             </div>
 
             <div class="items-table-container">
@@ -121,6 +129,11 @@
               <span class="bill-number">Bill #{{ order.billnum || order.id }}</span>
               <span class="order-total"><b>{{ Number(calculateOrderTotal(order)).toFixed(2) }} {{ currency }}</b></span>
             </div>
+            <div class="order-meta-row">
+              <span class="order-meta-pill">{{ order.orderType || 'Dine-In' }}</span>
+              <span class="order-meta-pill">{{ order.paymentType || 'Cash' }}</span>
+              <span v-if="order.note" class="order-meta-note">Note: {{ order.note }}</span>
+            </div>
             <div class="summary-bottom">
               <span class="order-date">{{ formatDate(order.date) }}</span>
               <span class="status-badge cancelled">Cancelled</span>
@@ -132,6 +145,9 @@
             <div class="actor-info">
               <div class="info-item"><span>Rejected by:</span> <b>{{ order.staffName || order.client || 'Cashier' }}</b></div>
               <div class="info-item"><span>Customer:</span> <b>{{ order.mobile || 'Walk-in' }}</b></div>
+              <div class="info-item"><span>Order Type:</span> <b>{{ order.orderType || 'Dine-In' }}</b></div>
+              <div class="info-item"><span>Payment Type:</span> <b>{{ order.paymentType || 'Cash' }}</b></div>
+              <div class="info-item"><span>Note:</span> <b>{{ order.note || 'None' }}</b></div>
             </div>
 
             <div class="items-table-container">
@@ -234,11 +250,18 @@ onMounted(async () => {
     if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
     const allOrders = await res.json();
 
-    paidOrders.value = allOrders.filter(o => o.status === 'paid');
-    cancelledOrders.value = allOrders.filter(o => o.status === 'cancelled' || o.status === 'rejected');
+    const normalizedOrders = (Array.isArray(allOrders) ? allOrders : []).map(o => ({
+      ...o,
+      orderType: o.orderType || (o.items && o.items[0]?.orderType) || 'Dine-In',
+      paymentType: o.paymentType || (o.items && o.items[0]?.paymentType) || 'Cash',
+      note: o.note || (o.items && o.items[0]?.note) || ''
+    }));
 
-    if (allOrders.length > 0 && allOrders[0].currency) {
-      currency.value = allOrders[0].currency;
+    paidOrders.value = normalizedOrders.filter(o => o.status === 'paid');
+    cancelledOrders.value = normalizedOrders.filter(o => o.status === 'cancelled' || o.status === 'rejected');
+
+    if (normalizedOrders.length > 0 && normalizedOrders[0].currency) {
+      currency.value = normalizedOrders[0].currency;
     }
   } catch (err) {
     console.error(err);
@@ -400,6 +423,36 @@ onMounted(async () => {
   justify-content: space-between;
   align-items: center;
   width: 100%;
+}
+
+.order-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.order-meta-pill {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #0369a1;
+  background: #e0f2fe;
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+
+.cancelled-card .order-meta-pill {
+  color: #b91c1c;
+  background: #fee2e2;
+}
+
+.order-meta-note {
+  font-size: 0.75rem;
+  color: #334155;
+  background: #f1f5f9;
+  padding: 2px 8px;
+  border-radius: 6px;
+  word-break: break-word;
 }
 
 .bill-number {

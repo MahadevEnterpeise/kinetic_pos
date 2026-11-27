@@ -998,7 +998,10 @@ throw new Error(`[DB Error] Failed to save bill and update stock: ${error.messag
         b.sc, 
         b.rc, 
         b.status, 
-        b.client, 
+        b.client,
+        b.orderType,
+        b.paymentType,
+        b.note,
         b.time,
         u.name AS actorName
       FROM shopbill b
@@ -1025,6 +1028,9 @@ throw new Error(`[DB Error] Failed to save bill and update stock: ${error.messag
           date: row.time,
           status: row.status,
           mobile: row.mobile,
+          orderType: row.orderType || 'Dine-In',
+          paymentType: row.paymentType || 'Cash',
+          note: row.note || '',
           staffName: row.actorName || 'System / Client',
           currency: 'LKR',
           items: []
@@ -1061,7 +1067,6 @@ throw new Error(`[DB Error] Failed to save bill and update stock: ${error.messag
     throw new Error(`[DB Error] Failed to fetch past orders history: ${error.message}`);
   }
 },
-
 
     getOrdersWithNestedItems: async (shopId, status = 'pending') => {
     try {
