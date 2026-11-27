@@ -37,7 +37,7 @@
     <!-- Right Side: POS Billing Panel -->
     <div class="client-bill">
       <div class="bill-header">
-        <h1 id="h1">Current Bill <span v-if="isOffline" class="offline-badge">🔌 Offline</span></h1>
+        <h1 id="h1">Current Bill</h1>
       </div>
 
       <div class="bills">
@@ -94,7 +94,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref, computed, onUnmounted, watch } from 'vue';
+import { onMounted, ref, computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { link, printReceipt } from '../assets/Link';
 import { eventBus } from '../assets/eventBus'; // <--- Connected to shared event bus
@@ -115,166 +115,11 @@ const billshow = ref(false);
 const currency = ref('');
 const tempQtys = ref({});
 const saving = ref(false);
-const isOffline = ref(!navigator.onLine);
-let shop = ''; 
-const mobile =ref('')//customer mobile number variable
+let shop = '';
+const mobile = ref(''); // customer mobile number variable
 const Token = sessionStorage.getItem('userToken');
 const shopId = sessionStorage.getItem('shopId') || sessionStorage.getItem('shopid');
 const clientUid = Token;
-
-// --- INDEXEDDB SETUP & HELPERS ---
-const DB_NAME = 'KineticPOS_Local';
-const DB_VERSION = 6;
-
-function openLocalDb() {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-    request.onerror = (e) => reject('IndexedDB error: ' + e.target.error);
-    request.onsuccess = (e) => resolve(e.target.result);
-    request.onupgradeneeded = (e) => {
-      const db = e.target.result;
-      if (!db.objectStoreNames.contains('catalog')) {
-        db.createObjectStore('catalog', { keyPath: 'id' });
-      }
-      if (!db.objectStoreNames.contains('offline_bills')) {
-        db.createObjectStore('offline_bills', { keyPath: 'tempId' });
-      }
-      if (!db.objectStoreNames.contains('pending_cache')) {
-        db.createObjectStore('pending_cache', { keyPath: 'id' });
-      }
-    };
-  });
-}
-
-async function saveCatalogToCache(categories, curr) {
-  try {
-    const db = await openLocalDb();
-    const tx = db.transaction(['catalog'], 'readwrite');
-    tx.objectStore('catalog').put({ id: 'main_menu', categories, currency: curr });
-  } catch (err) {
-    console.error('Failed to cache catalog locally:', err);
-  }
-}
-
-async function loadCatalogFromCache() {
-  try {
-    const db = await openLocalDb();
-    return new Promise((resolve) => {
-      const tx = db.transaction(['catalog'], 'readonly');
-      const store = tx.objectStore('catalog');
-      const req = store.get('main_menu');
-      req.onsuccess = () => resolve(req.result || null);
-      req.onerror = () => resolve(null);
-    });
-  } catch (err) {
-    return null;
-  }
-}
-
-async function saveBillOffline(payload, statusType) {
-  const db = await openLocalDb();
-  const tempId = 'OFFLINE_' + Date.now();
-  const numericId = Date.now();
-
-  const billRecord = {
-    ...payload,
-    id: numericId,
-    tempId,
-    date: new Date().toISOString(),
-    customer: 'Walk-in Customer',
-    items: payload.items.map(i => ({
-      itemid: i.pid,
-      name: i.name,
-      qty: i.qty,
-      price: i.price
-    })),
-    servicePct: payload.sc,
-    discount: payload.rc,
-    total: total.value,
-    currency: currency.value,
-    shopname: shop || 'KINETIC POS',
-    orderType: 'DINE-IN'
-  };
-
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(['offline_bills', 'pending_cache'], 'readwrite');
-    tx.objectStore('offline_bills').add({ ...billRecord, tempId });
-
-    if (statusType === 'pending') {
-      tx.objectStore('pending_cache').put(billRecord);
-    }
-
-    tx.oncomplete = () => resolve(tempId);
-    tx.onerror = (e) => reject(e.target.error);
-  });
-}
-
-// --- SYNC ENGINE ---
-async function syncOfflineBills() {
-  if (!navigator.onLine) return;
-  try {
-    const db = await openLocalDb();
-    
-    const offlineBills = await new Promise((resolve, reject) => {
-      const tx = db.transaction(['offline_bills'], 'readonly');
-      const store = tx.objectStore('offline_bills');
-      const req = store.getAll();
-      req.onsuccess = () => resolve(req.result || []);
-      req.onerror = () => reject(req.error);
-    });
-
-    if (!offlineBills || offlineBills.length === 0) return;
-
-    for (const billData of offlineBills) {
-      try {
-        const syncPayload = {
-          ...billData,
-          isOfflineSync: true,
-          originalTempId: billData.tempId
-        };
-
-        const res = await fetch(`${link}/bills`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${Token}`,
-            'Content-Type': 'application/json',
-            'shop-id': shopId,
-            'client-uid': clientUid
-          },
-          body: JSON.stringify(syncPayload)
-        });
-
-        if (res.ok) {
-          await new Promise((resolve, reject) => {
-            const delTx = db.transaction(['offline_bills', 'pending_cache'], 'readwrite');
-            delTx.objectStore('offline_bills').delete(billData.tempId);
-            
-            if (delTx.objectStoreNames.contains('pending_cache')) {
-              delTx.objectStore('pending_cache').delete(billData.id);
-            }
-
-            delTx.oncomplete = () => resolve();
-            delTx.onerror = (e) => reject(e);
-          });
-          console.log(`Synced and cleared local offline bill: ${billData.tempId}`);
-        } else {
-          console.warn(`Server rejected sync with status: ${res.status}`);
-        }
-      } catch (e) {
-        console.warn('Sync pending due to network state.');
-      }
-    }
-  } catch (err) {
-    console.error('Error during background bill sync:', err);
-  }
-}
-
-function updateNetworkStatus() {
-  isOffline.value = !navigator.onLine;
-  if (!isOffline.value) {
-    syncOfflineBills();
-  }
-}
 
 // Watch event bus to react instantly when sibling components change data states
 watch(() => eventBus.refreshPending, () => {
@@ -288,54 +133,34 @@ onMounted(async () => {
     return;
   }
 
-  window.addEventListener('online', updateNetworkStatus);
-  window.addEventListener('offline', updateNetworkStatus);
-
   try {
     loading.value = true;
     error.value = null;
 
-    if (navigator.onLine) {
-      const res = await fetch(`${link}/my-products`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${Token}`,
-          'shop-id': shopId,
-          'client-uid': clientUid,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (!res.ok) throw new Error(`API Error: ${res.status}`);
-
-      const result = await res.json();
-      data.value = result.categories;
-      currency.value = result.currency || 'LKR';
-      if (result.shopname) {
-        shop = result.shopname;
+    const res = await fetch(`${link}/my-products`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${Token}`,
+        'shop-id': shopId,
+        'client-uid': clientUid,
+        'Content-Type': 'application/json'
       }
+    });
 
-      await saveCatalogToCache(result.categories, currency.value);
-      syncOfflineBills();
-    } else {
-      throw new Error('Offline mode active');
+    if (!res.ok) throw new Error(`API Error: ${res.status}`);
+
+    const result = await res.json();
+    data.value = result.categories;
+    currency.value = result.currency || 'LKR';
+    if (result.shopname) {
+      shop = result.shopname;
     }
   } catch (err) {
-    const cached = await loadCatalogFromCache();
-    if (cached) {
-      data.value = cached.categories;
-      currency.value = cached.currency || 'LKR';
-    } else {
-      error.value = "Could not load products and no offline cache available.";
-    }
+    console.error('Failed to load products:', err);
+    error.value = 'Could not load products.';
   } finally {
     loading.value = false;
   }
-});
-
-onUnmounted(() => {
-  window.removeEventListener('online', updateNetworkStatus);
-  window.removeEventListener('offline', updateNetworkStatus);
 });
 
 const subtotal = computed(() => {
@@ -451,39 +276,33 @@ async function bill(statusType = 'paid') {
   };
 
   try {
-    let billnumResult = `OFFLINE-${Date.now().toString().slice(-6)}`;
+    const res = await fetch(`${link}/bills`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${Token}`,
+        'Content-Type': 'application/json',
+        'shop-id': shopId,
+        'client-uid': clientUid
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || `Save failed: ${res.status}`);
+    }
+
+    const result = await res.json();
+    const billnumResult = result.billnum;
     let currentShopName = shop || 'My Shop';
-
-    if (navigator.onLine) {
-      const res = await fetch(`${link}/bills`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${Token}`,
-          'Content-Type': 'application/json',
-          'shop-id': shopId,
-          'client-uid': clientUid
-        },
-        body: JSON.stringify(payload)
-      });
-
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || `Save failed: ${res.status}`);
-      }
-
-      const result = await res.json();
-      billnumResult = result.billnum;
-      if (result.shopname) {
-        currentShopName = result.shopname;
-        shop = result.shopname;
-      }
-    } else {
-      await saveBillOffline(payload, statusType);
+    if (result.shopname) {
+      currentShopName = result.shopname;
+      shop = result.shopname;
     }
 
     await printKOT(
-      selectedItems.value, 
-      billnumResult, 
+      selectedItems.value,
+      billnumResult,
       statusType === 'paid' ? 'Dine-In / Paid' : 'Held / Pending',
       currentShopName
     );
@@ -514,10 +333,8 @@ async function bill(statusType = 'paid') {
     // Notify sibling components (like Component B) via event bus that a bill was held/processed
     eventBus.triggerRefresh();
   } catch (err) {
-    console.error("Bill save failed, saving locally as backup:", err);
-    await saveBillOffline(payload, statusType);
-    alert("Network unreachable. Bill saved locally and will sync once online.");
-    eventBus.triggerRefresh();
+    console.error('Bill save failed:', err);
+    alert(err.message || 'Failed to save bill. Please check your connection and try again.');
   } finally {
     saving.value = false;
     button.value = 'Save & Pay';
@@ -540,16 +357,6 @@ async function holdBill() {
   background-color: #0f172a;
   box-sizing: border-box;
   overflow: hidden;
-}
-
-.offline-badge {
-  font-size: 0.7rem;
-  background-color: #ef4444;
-  color: white;
-  padding: 2px 6px;
-  border-radius: 4px;
-  vertical-align: middle;
-  margin-left: 8px;
 }
 
 .client-work {
