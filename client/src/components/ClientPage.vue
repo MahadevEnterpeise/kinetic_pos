@@ -818,6 +818,7 @@ async function holdBill() {
   flex-direction: column;
   gap: 10px;
   box-sizing: border-box;
+  overflow-y: scroll;
 }
 
 .calc-row {
