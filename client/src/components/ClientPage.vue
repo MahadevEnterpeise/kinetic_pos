@@ -79,6 +79,11 @@
           <span>{{ Number(total || 0).toFixed(2) }} {{ currency }}</span>
         </div>
 
+        <div class="calc-row total-row">
+          <span>Customer</span>
+          <span><input type="tel" v-model="mobile" placeholder="customer mobile number"/></span>
+        </div>
+
         <div class="action-buttons">
           <!--<button class="hold-btn" @click="holdBill" :disabled="saving">Hold Bill</button>-->
           <button class="pay-btn" @click="bill('paid')" :disabled="saving">{{ button }}</button>
@@ -107,12 +112,12 @@ const openeditems = ref([]);
 const sc = ref(0);
 const rc = ref(0);
 const billshow = ref(false);
-const currency = ref('LKR');
+const currency = ref('');
 const tempQtys = ref({});
 const saving = ref(false);
 const isOffline = ref(!navigator.onLine);
 let shop = ''; 
-
+const mobile =ref('')//customer mobile number variable
 const Token = sessionStorage.getItem('userToken');
 const shopId = sessionStorage.getItem('shopId') || sessionStorage.getItem('shopid');
 const clientUid = Token;
