@@ -4,7 +4,7 @@
 <!-- LEFT PANE: PENDING LIST -->
 <div class="pending-pane">
 <div class="head">
-Pending Orders <span v-if="isOffline" class="offline-badge">🔌 Offline</span><button @click="fetchPendingOrders()">Fetch</button>
+Pending Orders <button @click="fetchPendingOrders()">Fetch</button>
 </div>
 
 <div class="pending-list">
@@ -99,8 +99,9 @@ title="Click to remove item"
 
 </div>
 </template>
+
 <script setup>
-import { onMounted, ref, computed, onUnmounted } from 'vue';
+import { onMounted, ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { link, printReceipt } from '../assets/Link';
 import { eventBus } from '../assets/eventBus';
@@ -120,129 +121,6 @@ const sc = ref(0);
 const rc = ref(0);
 const billshow = ref(false);
 const saving = ref(false);
-const isOffline = ref(!navigator.onLine);
-
-// --- INDEXEDDB SETUP & HELPERS ---
-const DB_NAME = 'KineticPOS_Local';
-const DB_VERSION = 6;
-
-function openLocalDb() {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-    request.onerror = (e) => reject('IndexedDB error: ' + e.target.error);
-    request.onsuccess = (e) => resolve(e.target.result);
-    request.onupgradeneeded = (e) => {
-      const db = e.target.result;
-      if (!db.objectStoreNames.contains('catalog')) {
-        db.createObjectStore('catalog', { keyPath: 'id' });
-      }
-      if (!db.objectStoreNames.contains('offline_bills')) {
-        db.createObjectStore('offline_bills', { keyPath: 'tempId' });
-      }
-      if (!db.objectStoreNames.contains('pending_cache')) {
-        db.createObjectStore('pending_cache', { keyPath: 'id' });
-      }
-      if (!db.objectStoreNames.contains('offline_actions')) {
-        db.createObjectStore('offline_actions', { keyPath: 'tempId', autoIncrement: true });
-      }
-    };
-  });
-}
-
-async function cachePendingOrders(orders) {
-  try {
-    const db = await openLocalDb();
-    const tx = db.transaction(['pending_cache'], 'readwrite');
-    const store = tx.objectStore('pending_cache');
-    store.clear();
-    orders.forEach(order => store.put(order));
-  } catch (err) {
-    console.error('Failed to cache pending orders locally:', err);
-  }
-}
-
-async function loadPendingFromCache() {
-  try {
-    const db = await openLocalDb();
-    return new Promise((resolve) => {
-      const tx = db.transaction(['pending_cache'], 'readonly');
-      const store = tx.objectStore('pending_cache');
-      const req = store.getAll();
-      req.onsuccess = () => resolve(req.result || []);
-      req.onerror = () => resolve([]);
-    });
-  } catch (err) {
-    return [];
-  }
-}
-
-// --- SYNC ENGINE ---
-async function syncOfflineActions() {
-  if (!navigator.onLine) return;
-  
-  loading.value = true;
-  saving.value = true;
-
-  try {
-    const db = await openLocalDb();
-    const actionsPromise = new Promise((resolve, reject) => {
-      const tx = db.transaction(['offline_actions'], 'readonly');
-      const store = tx.objectStore('offline_actions');
-      const req = store.getAll();
-      req.onsuccess = () => resolve(req.result || []);
-      req.onerror = () => reject(req.error);
-    });
-
-    const offlineActions = await actionsPromise;
-
-    if (offlineActions.length > 0) {
-      for (const action of offlineActions) {
-        try {
-          const isTempId = String(action.orderId).startsWith('OFFLINE_') || String(action.orderId).length > 20;
-          
-          const endpoint = (action.payload.status === 'paid' && isTempId) 
-            ? `${link}/orders` 
-            : `${link}/orders/${action.orderId}`;
-          const method = (action.payload.status === 'paid' && isTempId) ? 'POST' : 'PATCH';
-
-          const response = await fetch(endpoint, {
-            method: method,
-            headers: { 
-              'Authorization': `Bearer ${Token}`, 
-              'Content-Type': 'application/json', 
-              'shop-id': shopId,
-              'client-uid': clientUid
-            },
-            body: JSON.stringify(action.payload)
-          });
-
-          if (response.ok || response.status === 404 || response.status === 400) {
-            const cleanupTx = db.transaction(['offline_actions', 'pending_cache'], 'readwrite');
-            cleanupTx.objectStore('offline_actions').delete(action.tempId);
-            cleanupTx.objectStore('pending_cache').delete(action.orderId);
-          }
-        } catch (e) {
-          console.warn('Sync attempt failed for action, will retry later.');
-        }
-      }
-    }
-
-    await fetchPendingOrders();
-  } catch (err) {
-    console.error('Error during background action sync:', err);
-    await fetchPendingOrders();
-  } finally {
-    loading.value = false;
-    saving.value = false;
-  }
-}
-
-async function updateNetworkStatus() {
-  isOffline.value = !navigator.onLine;
-  if (!isOffline.value) {
-    await syncOfflineActions();
-  }
-}
 
 const subtotal = computed(() => {
   return selectedItems.value.reduce((sum, item) => sum + (item.price * item.qty), 0);
@@ -276,7 +154,7 @@ function loadPending(o) {
       id: it.itemid || it.id,
       name: it.name,
       qty: qty,
-      price: unitPrice 
+      price: unitPrice
     };
   });
   sc.value = o.servicePct || o.sc || 0;
@@ -288,8 +166,8 @@ async function reject() {
   if (!selectedOrder.value) return;
   saving.value = true;
   const targetId = selectedOrder.value.id;
-  
-  const payload = { 
+
+  const payload = {
     status: 'cancelled',
     billNum: targetId,
     sc: Number(sc.value) || 0,
@@ -297,47 +175,31 @@ async function reject() {
   };
 
   try {
-    const db = await openLocalDb();
-    
-    const tx = db.transaction(['pending_cache', 'offline_actions'], 'readwrite');
-    tx.objectStore('pending_cache').delete(targetId);
-    tx.objectStore('offline_actions').add({ orderId: targetId, payload, tempId: 'ACTION_' + Date.now() });
+    const response = await fetch(`${link}/orders/${targetId}`, {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `Bearer ${Token}`,
+        'Content-Type': 'application/json',
+        'shop-id': shopId,
+        'client-uid': clientUid
+      },
+      body: JSON.stringify(payload)
+    });
 
-    const isTempId = String(targetId).startsWith('OFFLINE_') || String(targetId).length > 20;
-
-    if (navigator.onLine && !isTempId) {
-      const response = await fetch(`${link}/orders/${targetId}`, {
-        method: 'PATCH',
-        headers: { 
-          'Authorization': `Bearer ${Token}`, 
-          'Content-Type': 'application/json', 
-          'shop-id': shopId,
-          'client-uid': clientUid
-        },
-        body: JSON.stringify(payload)
-      });
-      if (response.ok) {
-        const cleanTx = db.transaction(['offline_actions'], 'readwrite');
-        const store = cleanTx.objectStore('offline_actions');
-        store.openCursor().onsuccess = (e) => {
-          const cursor = e.target.result;
-          if (cursor) {
-            if (cursor.value.orderId === targetId) cursor.delete();
-            cursor.continue();
-          }
-        };
-      }
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData.error || `Reject failed: ${response.status}`);
     }
 
     pendingOrders.value = pendingOrders.value.filter(item => item.id !== targetId);
     selectedOrder.value = null;
     selectedItems.value = [];
-    
+
     // Notify sibling components via event bus
     eventBus.triggerRefresh();
   } catch (err) {
-    console.error("Reject failed:", err);
-    alert("Could not reject order.");
+    console.error('Reject failed:', err);
+    alert(err.message || 'Could not reject order.');
   } finally {
     saving.value = false;
   }
@@ -383,44 +245,25 @@ async function bill() {
 
   try {
     let finalBillNum = targetId;
-    const db = await openLocalDb();
-    
-    const tx = db.transaction(['pending_cache', 'offline_actions'], 'readwrite');
-    tx.objectStore('pending_cache').delete(targetId);
-    tx.objectStore('offline_actions').add({ orderId: targetId, payload, tempId: 'ACTION_' + Date.now() });
 
-    const isTempId = String(targetId).startsWith('OFFLINE_') || String(targetId).length > 20;
+    const res = await fetch(`${link}/orders/${targetId}`, {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `Bearer ${Token}`,
+        'Content-Type': 'application/json',
+        'shop-id': shopId,
+        'client-uid': clientUid
+      },
+      body: JSON.stringify(payload)
+    });
 
-    if (navigator.onLine) {
-      const endpoint = isTempId ? `${link}/orders` : `${link}/orders/${targetId}`;
-      const method = isTempId ? 'POST' : 'PATCH';
-
-      const res = await fetch(endpoint, {
-        method: method,
-        headers: {
-          'Authorization': `Bearer ${Token}`,
-          'Content-Type': 'application/json',
-          'shop-id': shopId,
-          'client-uid': clientUid
-        },
-        body: JSON.stringify(payload)
-      });
-
-      if (res.ok) {
-        const result = await res.json().catch(() => ({}));
-        if (result.billnum || result.id) finalBillNum = result.billnum || result.id;
-
-        const cleanTx = db.transaction(['offline_actions'], 'readwrite');
-        const store = cleanTx.objectStore('offline_actions');
-        store.openCursor().onsuccess = (e) => {
-          const cursor = e.target.result;
-          if (cursor) {
-            if (cursor.value.orderId === targetId) cursor.delete();
-            cursor.continue();
-          }
-        };
-      }
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || `Save failed: ${res.status}`);
     }
+
+    const result = await res.json().catch(() => ({}));
+    if (result.billnum || result.id) finalBillNum = result.billnum || result.id;
 
     const printPayload = {
       arrays: JSON.parse(JSON.stringify(selectedItems.value.map(i => ({ ...i, price: i.price * i.qty })))),
@@ -448,8 +291,8 @@ async function bill() {
     // Notify sibling components via event bus
     eventBus.triggerRefresh();
   } catch (err) {
-    console.error("Bill save failed:", err);
-    alert(err.message || "Could not save bill.");
+    console.error('Bill save failed:', err);
+    alert(err.message || 'Could not save bill.');
   } finally {
     saving.value = false;
     buttonText.value = 'Save & Pay';
@@ -457,49 +300,24 @@ async function bill() {
 }
 
 async function fetchPendingOrders() {
-  const db = await openLocalDb();
-  
-  const offlineActions = await new Promise((resolve) => {
-    const tx = db.transaction(['offline_actions'], 'readonly');
-    const store = tx.objectStore('offline_actions');
-    const req = store.getAll();
-    req.onsuccess = () => resolve(req.result || []);
-    req.onerror = () => resolve([]);
-  });
-  const processedOrderIds = new Set(offlineActions.map(a => a.orderId));
-
-  if (!navigator.onLine) {
-    const cachedData = await loadPendingFromCache();
-    const filteredCache = cachedData.filter(order => !processedOrderIds.has(order.id));
-    pendingOrders.value = filteredCache;
-    if (filteredCache.length > 0) currency.value = filteredCache[0].currency || 'LKR';
-    loading.value = false;
-    return;
-  }
-
+  loading.value = true;
   try {
     const res = await fetch(`${link}/pendingorders`, {
       headers: { 'Authorization': `Bearer ${Token}`, 'shop-id': shopId, 'client-uid': clientUid }
     });
     if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
     const serverData = await res.json();
-    
-    const validServerOrders = serverData
-      .filter(order => !processedOrderIds.has(order.id))
-      .map(order => ({
-        ...order,
-        items: (order.items || []).map(it => ({ ...it, isBackendData: true }))
-      }));
+
+    const validServerOrders = serverData.map(order => ({
+      ...order,
+      items: (order.items || []).map(it => ({ ...it, isBackendData: true }))
+    }));
 
     pendingOrders.value = validServerOrders;
     if (validServerOrders.length > 0) currency.value = validServerOrders[0].currency || 'LKR';
-    
-    await cachePendingOrders(validServerOrders);
   } catch (err) {
-    const cachedData = await loadPendingFromCache();
-    const filteredCache = cachedData.filter(order => !processedOrderIds.has(order.id));
-    pendingOrders.value = filteredCache;
-    if (filteredCache.length > 0) currency.value = filteredCache[0].currency || 'LKR';
+    console.error('Failed to fetch pending orders:', err);
+    pendingOrders.value = [];
   } finally {
     loading.value = false;
   }
@@ -511,9 +329,6 @@ onMounted(async () => {
     return;
   }
 
-  window.addEventListener('online', updateNetworkStatus);
-  window.addEventListener('offline', updateNetworkStatus);
-
   // Added event bus listener to automatically refresh pending orders in real-time
   if (eventBus && typeof eventBus.on === 'function') {
     eventBus.on('refresh', async () => {
@@ -521,20 +336,10 @@ onMounted(async () => {
     });
   }
 
-  loading.value = true;
-  
-  if (navigator.onLine) {
-    await syncOfflineActions();
-  } else {
-    await fetchPendingOrders();
-  }
-});
-
-onUnmounted(() => {
-  window.removeEventListener('online', updateNetworkStatus);
-  window.removeEventListener('offline', updateNetworkStatus);
+  await fetchPendingOrders();
 });
 </script>
+
 <style scoped>
 html, body {
   margin: 0;
@@ -554,16 +359,6 @@ html, body {
   overflow: hidden;
   background-color: #f0f8ff;
   box-sizing: border-box;
-}
-
-.offline-badge {
-  font-size: 0.7rem;
-  background-color: #ef4444;
-  color: white;
-  padding: 2px 6px;
-  border-radius: 4px;
-  vertical-align: middle;
-  margin-left: 8px;
 }
 
 .pending-pane {
