@@ -1413,10 +1413,13 @@ throw new Error(`[DB Error] Failed to save bill and update stock: ${error.messag
     applyMonthlyLiability: async (shopId, calculatedFee = 5499.00) => {
     try {
         const query = `
-            UPDATE users 
-            SET due = IFNULL(due, 0.00) + ?, 
+            UPDATE users
+            SET due = IFNULL(due, 0.00) + ?,
                 billdate = CURDATE()
-            WHERE sid = ? AND usertype = 'owner'
+            WHERE sid = ?
+              AND usertype = 'owner'
+              AND billdate IS NOT NULL
+              AND billdate <= CURDATE()
         `;
         await db.query(query, [Number(calculatedFee), shopId]);
         return true;
@@ -1424,7 +1427,6 @@ throw new Error(`[DB Error] Failed to save bill and update stock: ${error.messag
         throw new Error(`[DB Error] Failed to apply monthly liability fee: ${error.message}`);
     }
 },
-
 handleFailedAutopay: async (shopId, fee = 0.00) => {
     try {
         if (Number(fee) > 0) {
@@ -1457,7 +1459,10 @@ getAllActiveShops: async () => {
         const query = `
             SELECT sid, pay_token, billdate, IFNULL(due, 0.00) AS due
             FROM users
-            WHERE usertype = 'owner' AND status != 'locked'
+            WHERE usertype = 'owner'
+              AND status != 'locked'
+              AND billdate IS NOT NULL
+              AND billdate <= CURDATE()
         `;
         const [rows] = await db.query(query);
         return rows;
