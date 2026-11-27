@@ -76,13 +76,52 @@
 
     <!-- Floating Checkout Cart Footer -->
     <footer class="cart-floating-footer" v-if="cartItems.length > 0">
-      <div class="cart-info">
-        <span class="cart-count">{{ totalCartCount }} items selected</span>
-        <span class="cart-sum">Total: {{ cartTotal.toFixed(2) }} {{ currency }}</span>
+      <div class="cart-selected-list">
+        <div v-for="item in cartItems" :key="item.pid" class="cart-selected-row">
+          <span class="cart-item-name">{{ item.name }} × {{ item.qty }}</span>
+          <span class="cart-item-sub">{{ (item.price * item.qty).toFixed(2) }} {{ currency }}</span>
+        </div>
       </div>
-      <button class="checkout-btn" @click="placeOrder" :disabled="submittingOrder">
-        {{ submittingOrder ? 'Placing Order...' : 'Place Order 🚀' }}
-      </button>
+
+      <div class="order-options-grid">
+        <div class="option-field">
+          <label for="orderTypeSelect">Order Type</label>
+          <select id="orderTypeSelect" v-model="orderType">
+            <option value="Dine-In">Dine-In</option>
+            <option value="Takeaway">Takeaway</option>
+            <option value="Delivery">Delivery</option>
+          </select>
+        </div>
+
+        <div class="option-field">
+          <label for="paymentTypeSelect">Payment Type</label>
+          <select id="paymentTypeSelect" v-model="paymentType">
+            <option v-for="method in availablePaymentOptions" :key="method" :value="method">
+              {{ method }}
+            </option>
+          </select>
+        </div>
+
+        <div class="option-field option-field-full">
+          <label for="noteInput">Chef Note</label>
+          <input
+            id="noteInput"
+            type="text"
+            v-model="note"
+            placeholder="Any note for the chef..."
+          />
+        </div>
+      </div>
+
+      <div class="cart-checkout-bar">
+        <div class="cart-info">
+          <span class="cart-count">{{ totalCartCount }} items selected</span>
+          <span class="cart-sum">Total: {{ cartTotal.toFixed(2) }} {{ currency }}</span>
+        </div>
+        <button class="checkout-btn" @click="placeOrder" :disabled="submittingOrder">
+          {{ submittingOrder ? 'Placing Order...' : 'Place Order 🚀' }}
+        </button>
+      </div>
     </footer>
   </main>
 
@@ -246,7 +285,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { link } from '../assets/Link.js';
 
@@ -258,6 +297,9 @@ const clientUid = sessionStorage.getItem('userToken');
 const activeTab = ref('catalog');
 const currency = ref('LKR');
 const customerMobile = ref('');
+const orderType = ref('Dine-In');
+const paymentType = ref('Card');
+const note = ref('');
 
 // Catalog data
 const products = ref([]);
@@ -271,6 +313,21 @@ const rawOrders = ref([]);
 const loadingOrders = ref(true);
 const ordersError = ref('');
 const expandedId = ref(null);
+
+const availablePaymentOptions = computed(() => {
+  if (orderType.value === 'Dine-In') {
+    return ['Card'];
+  }
+  return ['Online', 'Cash'];
+});
+
+watch(orderType, (newType) => {
+  if (newType === 'Dine-In') {
+    paymentType.value = 'Card';
+  } else if (paymentType.value === 'Card') {
+    paymentType.value = 'Online';
+  }
+});
 
 const formatDate = (iso) => {
   if (!iso) return '';
@@ -416,7 +473,17 @@ async function placeOrder() {
 
   try {
     submittingOrder.value = true;
-    const payload = { items: cartItems.value, sc: 0, rc: 0 };
+    const payload = {
+      shopId: currentShopId,
+      uid: clientUid,
+      clientUid: clientUid,
+      items: cartItems.value,
+      sc: 0,
+      rc: 0,
+      orderType: orderType.value,
+      paymentType: paymentType.value,
+      note: note.value.trim()
+    };
 
     const res = await fetch(`${link}/customer/orders`, {
       method: 'POST',
@@ -433,6 +500,7 @@ async function placeOrder() {
 
     alert('Order placed successfully!');
     cart.value = {};
+    note.value = '';
     activeTab.value = 'orders';
     fetchCustomerOrders();
     fetchCatalog();
@@ -458,7 +526,7 @@ onMounted(() => {
   flex-direction: column;
   box-sizing: border-box;
   font-family: system-ui, -apple-system, sans-serif;
-  padding-bottom: 90px;
+  padding-bottom: 220px;
 }
 
 .portal-header {
@@ -634,10 +702,81 @@ onMounted(() => {
   border-top: 1px solid #cbd5e1;
   padding: 10px 16px;
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
+  gap: 8px;
   box-shadow: 0 -4px 10px rgba(0,0,0,0.05);
   z-index: 101;
+}
+
+.cart-selected-list {
+  max-height: 76px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed #e2e8f0;
+}
+
+.cart-selected-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: #334155;
+}
+
+.cart-item-name {
+  font-weight: 600;
+}
+
+.cart-item-sub {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.order-options-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.option-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.option-field-full {
+  grid-column: 1 / -1;
+}
+
+.option-field label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #475569;
+}
+
+.option-field select,
+.option-field input {
+  padding: 5px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  color: #0f172a;
+  background: #f8fafc;
+  outline: none;
+}
+
+.option-field select:focus,
+.option-field input:focus {
+  border-color: #0284c7;
+  background: #ffffff;
+}
+
+.cart-checkout-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .cart-info {
