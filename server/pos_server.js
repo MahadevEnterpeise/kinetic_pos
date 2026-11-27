@@ -831,9 +831,13 @@ router.patch('/notifications/settings', resolveActorContext, async (req, res) =>
 });
 
 // --- Subscription, Billing & PayHere Gateway Integration ---
+// --- Subscription, Billing & PayHere Gateway Integration ---
 router.get('/account/dues', async (req, res) => {
     try {
         const shopId = req.headers['shop-id'];
+        if (!shopId) {
+            return res.status(400).json({ error: 'Missing shop-id header' });
+        }
         const duesProfile = await dbActions.getAccountDues(shopId);
         res.status(200).json(duesProfile);
     } catch (error) {
@@ -845,33 +849,96 @@ router.get('/account/dues', async (req, res) => {
 router.post('/account/pay', async (req, res) => {
     try {
         const shopId = req.headers['shop-id'];
+        if (!shopId) {
+            return res.status(400).json({ error: 'Missing shop-id header' });
+        }
+
         const duesProfile = await dbActions.getAccountDues(shopId);
 
         if (!duesProfile || duesProfile.amount <= 0) {
             return res.status(400).json({ error: 'No outstanding balance to pay' });
         }
 
-        const merchantId = '1228195'; 
-        const merchantSecret = 'MTQ3ODM3MjAyMjkxNTE0NjExMTA3MTAwODQ5NDIwMTc1NzE1MjU='; 
+        const isSandbox = process.env.PAYHERE_SANDBOX !== 'false';
+        const baseUrl = isSandbox ? 'https://sandbox.payhere.lk' : 'https://www.payhere.lk';
         const orderId = `SUB_${shopId}_${Date.now()}`;
-        const amount = Number(duesProfile.amount).toFixed(2);
-        const currency = duesProfile.currency || 'LKR';
+
+        let rawAmount = 5499;
+        let currency = 'LKR';
+
+        // Uncomment when expanding outside Sri Lanka:
+        // if (duesProfile.currency && duesProfile.currency !== 'LKR') {
+        //     rawAmount = 25;
+        //     currency = 'USD';
+        // }
+
+        const amount = Number(rawAmount).toFixed(2);
+
+        // CASE A: Saved pay_token exists -> Charge card directly via PayHere Charging API
+        if (duesProfile.pay_token && !req.body?.useNewCard) {
+            try {
+                const accessToken = await getPayHereOAuthToken(baseUrl);
+
+                const chargeRes = await fetch(`${baseUrl}/merchant/v1/payment/charge`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        type: 'PAYMENT',
+                        order_id: orderId,
+                        items: 'Kinetic Code HQ Kinetic POS Subscription',
+                        currency,
+                        amount: Number(amount),
+                        customer_token: duesProfile.pay_token,
+                        notify_url: `${process.env.BACKEND_URL || 'https://kineticpos1.bonto.page'}${API_PREFIX}/account/notify`
+                    })
+                });
+
+                const chargeData = await chargeRes.json();
+
+                if (chargeRes.ok && chargeData.status === 1) {
+                    await dbActions.saveSubscriptionPayment(shopId, Number(amount), orderId);
+                    return res.status(200).json({
+                        success: true,
+                        chargedDirectly: true,
+                        message: 'Subscription paid using saved card.'
+                    });
+                }
+
+                console.warn(`Saved card charge failed for shop ${shopId}:`, chargeData);
+            } catch (chargeErr) {
+                console.warn(`Direct token charge error for shop ${shopId}, falling back to preapprove:`, chargeErr.message);
+            }
+        }
+
+        // CASE B: First-time payment or updating card -> Preapproval
+        const merchantId = process.env.PAYHERE_MERCHANT_ID || '1228195';
+        const merchantSecret = process.env.PAYHERE_MERCHANT_SECRET;
+        if (!merchantSecret) {
+            return res.status(500).json({ error: 'PAYHERE_MERCHANT_SECRET is not configured' });
+        }
+
+        const frontendUrl = process.env.FRONTEND_URL || 'https://kineticpos1.bonto.page';
+        const backendUrl = process.env.BACKEND_URL || 'https://kineticpos1.bonto.page';
 
         const hashedSecret = generateMd5Hash(merchantSecret);
-        const rawHashString = merchantId + orderId + amount + currency + hashedSecret;
+        const rawHashString = `${merchantId}${orderId}${amount}${currency}${hashedSecret}`;
         const hash = generateMd5Hash(rawHashString);
 
-        res.status(200).json({
+        return res.status(200).json({
             success: true,
-            payhereUrl: 'https://sandbox.payhere.lk/pay',
+            chargedDirectly: false,
+            payhereUrl: `${baseUrl}/pay/preapprove`,
             paymentData: {
-                sandbox: true,
+                sandbox: isSandbox,
                 merchant_id: merchantId,
-                return_url: `http://localhost:5173/posowner`,
-                cancel_url: `http://localhost:5173/posowner`,
-                notify_url: `http://localhost:${PORT}${API_PREFIX}/account/notify`,
+                return_url: `${frontendUrl}/posowner`,
+                cancel_url: `${frontendUrl}/posowner`,
+                notify_url: `${backendUrl}${API_PREFIX}/account/notify`,
                 order_id: orderId,
-                items: 'Kinetic Code POS Subscription',
+                items: 'Kinetic Code HQ Kinetic POS Subscription',
                 amount,
                 currency,
                 hash,
@@ -879,98 +946,90 @@ router.post('/account/pay', async (req, res) => {
                 last_name: 'Owner',
                 email: duesProfile.email || 'owner@kineticcode.lk',
                 phone: duesProfile.phone || '0771234567',
-                address: 'Battaramulla',
-                city: 'Colombo',
-                country: 'Sri Lanka',
-                recurrence: '1 Month',
-                duration: 'Forever'
+                address: duesProfile.address || 'Not Provided',
+                city: duesProfile.city || 'Colombo',
+                country: 'Sri Lanka'
             }
         });
     } catch (error) {
-        console.error('❌ Error preparing PayHere redirect:', error.message);
+        console.error('❌ Error processing PayHere payment:', error.message);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
 
 router.post('/account/notify', async (req, res) => {
-try {
-const paymentData = req.body;
-const { order_id, status_code, customer_token, payhere_amount } = paymentData;
+    try {
+        const paymentData = req.body || {};
+        const { order_id, status_code, customer_token, payhere_amount } = paymentData;
 
-// Status code '2' means success in PayHere gateway responses
-if (status_code === '2') {
-const parts = order_id.split('_');
-const shopId = parts[1]; 
+        // Status code '2' means success in PayHere gateway responses
+        if (String(status_code) === '2' && order_id) {
+            const parts = String(order_id).split('_');
+            const shopId = parts[1];
+            const paidAmount = Number(payhere_amount) || 5499.00;
 
-if (shopId) {
-// 1. Process payment first to clear/update active balance dues
-await dbActions.processAccountPayment(shopId, payhere_amount || 0.00);
+            if (shopId) {
+                if (customer_token) {
+                    await dbActions.savePaymentToken(shopId, customer_token);
+                }
 
-// 2. Safely store recurring customer token if issued for automatic monthly billing sweeps
-if (customer_token) {
-await dbActions.savePaymentToken(shopId, customer_token);
-}
+                await dbActions.saveSubscriptionPayment(shopId, paidAmount, order_id);
+                console.log(`✅ Successfully processed subscription payment for Shop ID ${shopId}`);
 
-// 3. Record transaction payment history logs
-await dbActions.saveSubscriptionPayment(shopId, payhere_amount || 0.00, order_id);
-console.log(`✅ Successfully processed subscription payment for Shop ID ${shopId}`);
+                if (dbActions.getAccountSummaryForEmail && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+                    const accountDetails = await dbActions.getAccountSummaryForEmail(shopId);
+                    if (accountDetails) {
+                        const { rawShopName, ownerEmail, totalSales, dueAmount, chargeAmount } = accountDetails;
+                        const recipientEmail = ownerEmail || process.env.EMAIL_USER;
+                        const sanitizedShopName = String(rawShopName || 'shop').replace(/[^a-zA-Z0-9-_]/g, '_');
+                        const currentDate = new Date().toISOString().split('T')[0];
 
-// 4. Fetch shop and account details to send the notification email
-const accountDetails = await dbActions.getAccountSummaryForEmail(shopId);
-if (accountDetails) {
-const { rawShopName, ownerEmail, totalSales, dueAmount, chargeAmount } = accountDetails;
-const recipientEmail = ownerEmail || 'unknownlion001@gmail.com';
-const sanitizedShopName = rawShopName.replace(/[^a-zA-Z0-9-_]/g, "_");
-const currentDate = new Date().toISOString().split('T')[0];
+                        const csvHeaderLines = [
+                            `"Shop Name: ${rawShopName}"`,
+                            `"Payment Date: ${currentDate}"`,
+                            `"Total Sales: ${totalSales}"`,
+                            `"Due Amount: ${dueAmount}"`,
+                            `"Amount Charged: ${chargeAmount}"`,
+                            ``,
+                            `"Order ID","Status","Amount Paid"`
+                        ].join('\n');
 
-const csvHeaderLines = [
-`"Shop Name: ${rawShopName}"`,
-`"Payment Date: ${currentDate}"`,
-`"Total Sales: ${totalSales}"`,
-`"Due Amount: ${dueAmount}"`,
-`"Amount Charged: ${chargeAmount}"`,
-``,
-`"Order ID","Status","Amount Paid"`
-].join("\n");
+                        const csvRow = `"${order_id}","Success","${paidAmount.toFixed(2)}"`;
+                        const fileName = `${sanitizedShopName}_payment_summary.csv`;
+                        const filePath = path.join(__dirname, fileName);
 
-const csvRow = `"${order_id}","Success","${payhere_amount || 0.00}"`;
-const fileName = `${sanitizedShopName}_payment_summary.csv`;
-const filePath = path.join(__dirname, fileName);
+                        fs.writeFileSync(filePath, `${csvHeaderLines}\n${csvRow}`);
 
-fs.writeFileSync(filePath, csvHeaderLines + "\n" + csvRow);
+                        const directTransporter = nodemailer.createTransport({
+                            service: 'gmail',
+                            auth: {
+                                user: process.env.EMAIL_USER,
+                                pass: process.env.EMAIL_PASS
+                            }
+                        });
 
-const directTransporter = nodemailer.createTransport({
-service: 'gmail',
-auth: {
-user: 'unknownlion001@gmail.com',
-pass: 'csrn yccb kboy szao'
-}
+                        await directTransporter.sendMail({
+                            from: process.env.EMAIL_USER,
+                            to: recipientEmail,
+                            subject: `Payment Notification & Summary - ${rawShopName}`,
+                            text: `Payment successfully processed for ${rawShopName}.\nTotal Sales: ${totalSales}\nDue Amount: ${dueAmount}\nAmount Charged: ${chargeAmount}`,
+                            attachments: [{ filename: fileName, path: filePath }]
+                        });
+
+                        if (fs.existsSync(filePath)) {
+                            fs.unlinkSync(filePath);
+                        }
+                    }
+                }
+            }
+        }
+
+        res.status(200).send('Notification received');
+    } catch (error) {
+        console.error('❌ Error processing PayHere webhook & email notification:', error.message);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
 });
-
-const mailOptions = {
-from: 'unknownlion001@gmail.com',
-to: recipientEmail,
-subject: `Payment Notification & Summary - ${rawShopName}`,
-text: `Payment successfully processed for ${rawShopName}.\nTotal Sales: ${totalSales}\nDue Amount: ${dueAmount}\nAmount Charged: ${chargeAmount}`,
-attachments: [{ filename: fileName, path: filePath }]
-};
-
-await directTransporter.sendMail(mailOptions);
-
-if (fs.existsSync(filePath)) {
-fs.unlinkSync(filePath);
-}
-}
-}
-}
-
-res.status(200).send('Notification received');
-} catch (error) {
-console.error('❌ Error processing PayHere webhook & email notification:', error.message);
-res.status(500).json({ error: 'Internal Server Error' });
-}
-});
-
 
 // --- System Administration & User Status Control ---
 router.post('/posowners', async (req, res) => {
@@ -1157,32 +1216,37 @@ app.use(API_PREFIX, router);
  * Monthly Automated Commission Sweep & Autopay Processor
  * Executes on the 1st of every month at midnight (00:00).
  */
+const MONTHLY_SUBSCRIPTION_FEE = 5499.00;
+
+// 1. Monthly fee on the 1st at 00:00 Colombo time
 cron.schedule('0 0 1 * *', async () => {
-    console.log('🔄 Running automated monthly sales commission sweep...');
+    console.log('🔄 Running automated monthly subscription fee job...');
     try {
         const shops = await dbActions.getAllActiveShops();
         for (const shop of shops) {
             try {
-                const totalMonthlySales = await dbActions.getMonthlySalesTotal(shop.sid);
-                const calculatedFee = calculateMonthlySubscriptionFee(totalMonthlySales);
-
-                await dbActions.applyMonthlyLiability(shop.sid, calculatedFee);
-                console.log(`✅ Applied monthly fee of ${calculatedFee} for Shop ID ${shop.sid}`);
-
-                if (shop.customer_token && calculatedFee > 0) {
-                    console.log(`Charging Shop ID ${shop.sid} via stored token for monthly commission...`);
-                    await dbActions.processAccountPayment(shop.sid, calculatedFee);
-                    console.log(`✅ Monthly autopay successful for Shop ID ${shop.sid}`);
-                }
+                await dbActions.applyMonthlyLiability(shop.sid, MONTHLY_SUBSCRIPTION_FEE);
+                console.log(`✅ Applied monthly fee of ${MONTHLY_SUBSCRIPTION_FEE} LKR for Shop ID ${shop.sid}`);
             } catch (shopError) {
-                console.error(`❌ Failed processing monthly commission for Shop ID ${shop.sid}:`, shopError.message);
+                console.error(`❌ Failed processing monthly fee for Shop ID ${shop.sid}:`, shopError.message);
                 await dbActions.handleFailedAutopay(shop.sid, 0.00);
             }
         }
     } catch (error) {
         console.error('❌ Error executing monthly billing job runner:', error.message);
     }
-});
+}, { timezone: 'Asia/Colombo' });
+
+// 2. Daily overdue check at 00:05 Colombo time (Day 4+ puts non-owner staff on 'hold')
+cron.schedule('5 0 * * *', async () => {
+    console.log('🔄 Running daily overdue & staff hold check...');
+    try {
+        await dbActions.applyDailyLiabilitiesAndCheckLocks();
+        console.log('✅ Daily staff hold check completed.');
+    } catch (error) {
+        console.error('❌ Error executing daily lock check:', error.message);
+    }
+}, { timezone: 'Asia/Colombo' });
 
 // ============================================================================
 // 7. SERVER BOOTSTRAP

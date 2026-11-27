@@ -1274,51 +1274,63 @@ throw new Error(`[DB Error] Failed to save bill and update stock: ${error.messag
     // ------------------------------------------
 
     getAccountDues: async (shopId) => {
-        try {
-            const query = `
-                SELECT 
-                    billdate,
-                    IFNULL(due, 0.00) AS due_amount,
-                    status,
-                    currency,
-                    CASE 
-                        WHEN IFNULL(due, 0.00) > 0 THEN DATEDIFF(CURDATE(), billdate)
-                        ELSE 0 
-                    END AS streakDay 
-                FROM users 
-                WHERE sid = ? AND usertype = 'owner' 
-                LIMIT 1
-            `;
-            const [rows] = await db.query(query, [shopId]);
+    try {
+        const query = `
+            SELECT 
+                name,
+                email,
+                phone,
+                address,
+                city,
+                billdate,
+                IFNULL(due, 0.00) AS due_amount,
+                status,
+                currency,
+                pay_token,
+                CASE 
+                    WHEN IFNULL(due, 0.00) > 0 THEN DATEDIFF(CURDATE(), billdate)
+                    ELSE 0 
+                END AS streakDay 
+            FROM users 
+            WHERE sid = ? AND usertype = 'owner' 
+            LIMIT 1
+        `;
+        const [rows] = await db.query(query, [shopId]);
 
-            if (rows.length === 0) {
-                return { amount: 0.00, streakDay: 0, currency: 'Rs.', isLocked: true };
-            }
-
-            const row = rows[0];
-            let isLocked = row.status === 'locked';
-            let currentStreak = Number(row.streakDay) || 0;
-
-            if (currentStreak < 0) currentStreak = 0;
-
-            if (row.billdate && row.due_amount > 0) {
-                if (currentStreak >= 3) {
-                    isLocked = true;
-                }
-            }
-
-            return {
-                amount: Number(row.due_amount),
-                streakDay: currentStreak,
-                currency: row.currency || 'LKR',
-                status: isLocked ? 'locked' : row.status,
-                billdate: row.billdate,
-                isLocked: isLocked
-            };
-        } catch (error) {
-            throw new Error(`[DB Error] Failed to read account subscription dues: ${error.message}`);
+        if (rows.length === 0) {
+            return { amount: 0.00, streakDay: 0, currency: 'LKR', status: 'locked', isLocked: true };
         }
-    },
+
+        const row = rows[0];
+        let isLocked = row.status === 'locked';
+        let currentStreak = Number(row.streakDay) || 0;
+
+        if (currentStreak < 0) currentStreak = 0;
+
+        if (row.billdate && row.due_amount > 0) {
+            if (currentStreak >= 3) {
+                isLocked = true;
+            }
+        }
+
+        return {
+            amount: Number(row.due_amount),
+            streakDay: currentStreak,
+            currency: row.currency || 'LKR',
+            status: isLocked ? 'locked' : row.status,
+            billdate: row.billdate,
+            isLocked: isLocked,
+            owner_name: row.name || row.owner_name || 'Shop',
+            email: row.email || '',
+            phone: row.phone || '',
+            address: row.address || '',
+            city: row.city || '',
+            pay_token:row.pay_token
+        };
+    } catch (error) {
+        throw new Error(`[DB Error] Failed to read account subscription dues: ${error.message}`);
+    }
+},
 
     savePaymentToken: async (shopId, payToken) => {
         try {
@@ -1381,78 +1393,79 @@ throw new Error(`[DB Error] Failed to save bill and update stock: ${error.messag
         }
     },
 
-    applyMonthlyLiability: async (shopId, calculatedFee) => {
-        try {
-            const query = `
-                UPDATE users 
-                SET due = due + ?, 
-                    billdate = DATE_ADD(billdate, INTERVAL 1 MONTH)
-                WHERE sid = ? AND usertype = 'owner'
-            `;
-            await db.query(query, [calculatedFee, shopId]);
-            return true;
-        } catch (error) {
-            throw new Error(`[DB Error] Failed to apply monthly liability fee: ${error.message}`);
-        }
-    },
-
     applyDailyLiabilitiesAndCheckLocks: async () => {
-        try {
-            const checkLocksQuery = `
-                UPDATE users 
-                SET status = 'active'
-                WHERE usertype = 'owner' 
-                AND due > 0.00 
-                AND DATEDIFF(CURDATE(), billdate) >= 3
-            `;
-            await db.query(checkLocksQuery);
+    try {
+        const query = `
+            UPDATE users u
+            JOIN users o ON u.sid = o.sid AND o.usertype = 'owner'
+            SET u.status = 'hold'
+            WHERE u.usertype != 'owner'
+              AND IFNULL(o.due, 0.00) > 0.00
+              AND o.billdate IS NOT NULL
+              AND DATEDIFF(CURDATE(), o.billdate) >= 3
+        `;
+        await db.query(query);
+        return true;
+    } catch (error) {
+        throw new Error(`[DB Error] Failed to run automated grace period checks: ${error.message}`);
+    }
+},
 
-            const holdOtherUsersQuery = `
-                UPDATE users u
-                JOIN users o ON u.sid = o.sid AND o.usertype = 'owner'
-                SET u.status = 'hold'
-                WHERE u.usertype != 'owner'
-            `;
-            await db.query(holdOtherUsersQuery);
+    applyMonthlyLiability: async (shopId, calculatedFee = 5499.00) => {
+    try {
+        const query = `
+            UPDATE users 
+            SET due = IFNULL(due, 0.00) + ?, 
+                billdate = CURDATE()
+            WHERE sid = ? AND usertype = 'owner'
+        `;
+        await db.query(query, [Number(calculatedFee), shopId]);
+        return true;
+    } catch (error) {
+        throw new Error(`[DB Error] Failed to apply monthly liability fee: ${error.message}`);
+    }
+},
 
-            return true;
-        } catch (error) {
-            throw new Error(`[DB Error] Failed to run automated grace period checks: ${error.message}`);
-        }
-    },
-
-    handleFailedAutopay: async (shopId, fee) => {
-        try {
-            const query = `
-                UPDATE users 
-                SET due = due + ?, 
-                    status = CASE WHEN DATEDIFF(CURDATE(), billdate) >= 3 THEN 'locked' ELSE status END
-                WHERE sid = ? AND usertype = 'owner'
-            `;
-            await db.query(query, [fee, shopId]);
-
+handleFailedAutopay: async (shopId, fee = 0.00) => {
+    try {
+        if (Number(fee) > 0) {
             await db.query(`
                 UPDATE users 
-                SET status = 'hold' 
-                WHERE sid = ? AND usertype != 'owner' 
-                AND (SELECT status FROM users WHERE sid = ? AND usertype = 'owner') = 'locked'
-            `, [shopId, shopId]);
-
-            return true;
-        } catch (error) {
-            throw new Error(`[DB Error] Failed to update failed autopay liability: ${error.message}`);
+                SET due = IFNULL(due, 0.00) + ?
+                WHERE sid = ? AND usertype = 'owner'
+            `, [Number(fee), shopId]);
         }
-    },
 
-    getAllActiveShops: async () => {
-        try {
-            const query = `SELECT sid, customer_token FROM users WHERE usertype = 'owner' AND status != 'locked'`;
-            const [rows] = await db.query(query);
-            return rows;
-        } catch (error) {
-            throw new Error(`[DB Error] Failed to fetch active shops: ${error.message}`);
-        }
-    },
+        await db.query(`
+            UPDATE users u
+            JOIN users o ON u.sid = o.sid AND o.usertype = 'owner'
+            SET u.status = 'hold'
+            WHERE u.sid = ?
+              AND u.usertype != 'owner'
+              AND IFNULL(o.due, 0.00) > 0.00
+              AND o.billdate IS NOT NULL
+              AND DATEDIFF(CURDATE(), o.billdate) >= 3
+        `, [shopId]);
+
+        return true;
+    } catch (error) {
+        throw new Error(`[DB Error] Failed to update failed autopay liability: ${error.message}`);
+    }
+},
+
+getAllActiveShops: async () => {
+    try {
+        const query = `
+            SELECT sid, pay_token, billdate, IFNULL(due, 0.00) AS due
+            FROM users
+            WHERE usertype = 'owner' AND status != 'locked'
+        `;
+        const [rows] = await db.query(query);
+        return rows;
+    } catch (error) {
+        throw new Error(`[DB Error] Failed to fetch active shops: ${error.message}`);
+    }
+},
 
     getLastSubscriptionRecord: async (shopId) => {
         try {
