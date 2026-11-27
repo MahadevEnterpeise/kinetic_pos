@@ -299,7 +299,7 @@ router.post('/customer/orders', resolveActorContext, async (req, res) => {
   try {
     const shopId = req.headers['shop-id'] || req.body.shopId;
     const clientUid = req.headers['client-uid'] || req.headers['authorization']?.replace('Bearer ', '') || req.body.clientUid;
-    const { items, sc, rc } = req.body;
+    const { items, sc, rc, orderType, paymentType, note } = req.body;
 
     if (!shopId || !clientUid || !items || !Array.isArray(items)) {
       return res.status(400).json({ error: 'Shop ID, Client ID, and a valid items array are required.' });
@@ -323,16 +323,19 @@ router.post('/customer/orders', resolveActorContext, async (req, res) => {
     // Generate unique bill number using your existing dbActions method
     const billNum = await dbActions.generateUniqueBillNum(shopId);
 
-    // Save items with 'pending' status using the strictly sanitized items array
+    // Save items with 'pending' status including orderType, paymentType, and note
     await dbActions.saveBillItems(
-      shopId, 
-      billNum, 
-      sanitizedItems, 
-      'pending', 
-      clientUid, 
-      null, 
-      sc || 0, 
-      rc || 0
+      shopId,
+      billNum,
+      sanitizedItems,
+      'pending',
+      clientUid,
+      null,
+      sc || 0,
+      rc || 0,
+      orderType || 'Dine-In',
+      paymentType || 'Cash',
+      note || ''
     );
 
     // Audit log & Real-time WebSocket notifications
