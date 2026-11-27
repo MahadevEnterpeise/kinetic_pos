@@ -87,6 +87,17 @@
                 <span>-{{ (((calculateSubtotal(order) + (calculateSubtotal(order) * order.sc) / 100) * order.rc) / 100).toFixed(2) }}</span>
               </div>
             </div>
+
+            <div class="card-actions">
+              <button
+                type="button"
+                class="reprint-btn"
+                :disabled="printingOrderId === order.id"
+                @click="reprintBillOnly(order)"
+              >
+                {{ printingOrderId === order.id ? 'Printing Bill...' : '🖨️ Reprint Bill' }}
+              </button>
+            </div>
           </div>
         </article>
       </div>
@@ -186,7 +197,7 @@
 <script setup>
 import { onMounted, ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
-import { link } from '../assets/Link.js';
+import { link, printBill } from '../assets/Link.js';
 
 const router = useRouter();
 const paidOrders = ref([]);
@@ -194,6 +205,7 @@ const cancelledOrders = ref([]);
 const loading = ref(true);
 const currency = ref('LKR');
 const expandedOrderId = ref(null);
+const printingOrderId = ref(null);
 
 const Token = sessionStorage.getItem('userToken');
 const shopId = sessionStorage.getItem('shopId');
@@ -231,6 +243,54 @@ const cancelledTotal = computed(() => {
 
 function toggleExpand(id) {
   expandedOrderId.value = expandedOrderId.value === id ? null : id;
+}
+
+async function reprintBillOnly(order) {
+  if (!order || printingOrderId.value === order.id) return;
+
+  printingOrderId.value = order.id;
+  try {
+    const sub = calculateSubtotal(order);
+    const scVal = Number(order.sc || (order.items && order.items[0]?.sc) || 0);
+    const rcVal = Number(order.rc || (order.items && order.items[0]?.rc) || 0);
+    const finalTotal = calculateOrderTotal(order);
+
+    const formattedItems = (order.items || []).map(item => ({
+      name: item.name,
+      qty: Number(item.qty || 1),
+      price: Number(item.price || 0) * Number(item.qty || 1)
+    }));
+
+    const orderDateObj = order.date ? new Date(order.date) : new Date();
+    const hasValidDate = !Number.isNaN(orderDateObj.getTime());
+
+    const billPayload = {
+      arrays: formattedItems,
+      stotal: sub,
+      scvalue: scVal,
+      rcvalue: rcVal,
+      total: finalTotal,
+      billnum: order.billnum || order.id,
+      currency: order.currency || currency.value,
+      shopname: order.shopname || 'KINETIC POS',
+      mobile: order.mobile || '',
+      orderType: order.orderType || 'Dine-In',
+      paymentType: order.paymentType || 'Cash',
+      note: order.note || '',
+      date: hasValidDate ? orderDateObj.toLocaleDateString() : new Date().toLocaleDateString(),
+      time: hasValidDate ? orderDateObj.toLocaleTimeString() : new Date().toLocaleTimeString()
+    };
+
+    const res = await printBill(billPayload);
+    if (!res.success) {
+      alert(res.error || 'Failed to reprint bill.');
+    }
+  } catch (err) {
+    console.error('Reprint bill failed:', err);
+    alert(err.message || 'Could not reprint bill.');
+  } finally {
+    printingOrderId.value = null;
+  }
 }
 
 onMounted(async () => {
@@ -628,6 +688,33 @@ onMounted(async () => {
 .breakdown-row {
   display: flex;
   justify-content: space-between;
+}
+
+.card-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 4px;
+}
+
+.reprint-btn {
+  background-color: #0284c7;
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.reprint-btn:hover:not(:disabled) {
+  background-color: #0369a1;
+}
+
+.reprint-btn:disabled {
+  background-color: #94a3b8;
+  cursor: not-allowed;
 }
 
 .state-message {

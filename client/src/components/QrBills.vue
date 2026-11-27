@@ -125,7 +125,7 @@ title="Click to remove item"
 <script setup>
 import { onMounted, ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
-import { link, printReceipt } from '../assets/Link';
+import { link, printKot } from '../assets/Link';
 import { eventBus } from '../assets/eventBus';
 
 const router = useRouter();
@@ -235,7 +235,7 @@ async function reject() {
   }
 }
 
-// --- ACCEPT / SAVE & PAY ACTION ---
+// --- ACCEPT / SAVE & PAY ACTION (KOT ONLY) ---
 async function bill() {
   if (!selectedOrder.value) {
     alert('Please select a pending order first');
@@ -301,23 +301,18 @@ async function bill() {
     const result = await res.json().catch(() => ({}));
     if (result.billnum || result.id) finalBillNum = result.billnum || result.id;
 
-    const printPayload = {
+    const kotPayload = {
       arrays: JSON.parse(JSON.stringify(selectedItems.value.map(i => ({ ...i, price: i.price * i.qty })))),
-      rcvalue: Number(rc.value),
-      scvalue: Number(sc.value),
-      stotal: Number(subtotal.value),
-      total: Number(total.value),
       billnum: finalBillNum,
-      currency: currency.value,
       shopname: selectedOrder.value.shopname || 'KINETIC POS',
       orderType: currentOrderType,
       paymentType: currentPaymentType,
       note: currentNote
     };
 
-    const printResult = await printReceipt(printPayload);
+    const printResult = await printKot(kotPayload);
     if (!printResult.success) {
-      console.warn('Printer note:', printResult.error);
+      console.warn('KOT printer note:', printResult.error);
     }
 
     pendingOrders.value = pendingOrders.value.filter(o => o.id !== targetId);

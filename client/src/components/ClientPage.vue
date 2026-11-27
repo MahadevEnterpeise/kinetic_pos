@@ -119,8 +119,8 @@
 <script setup>
 import { onMounted, ref, computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { link, printReceipt } from '../assets/Link';
-import { eventBus } from '../assets/eventBus'; // <--- Connected to shared event bus
+import { link, printBill, printKot } from '../assets/Link';
+import { eventBus } from '../assets/eventBus';
 
 const router = useRouter();
 
@@ -139,17 +139,15 @@ const currency = ref('');
 const tempQtys = ref({});
 const saving = ref(false);
 let shop = '';
-const mobile = ref(''); // customer mobile number variable
-const chefNote = ref(''); // note for chef
-const paymentType = ref('Cash'); // payment type dropdown
-const orderType = ref('Dine-In'); // order type dropdown
+const mobile = ref('');
+const chefNote = ref('');
+const paymentType = ref('Cash');
+const orderType = ref('Dine-In');
 const Token = sessionStorage.getItem('userToken');
 const shopId = sessionStorage.getItem('shopId') || sessionStorage.getItem('shopid');
 const clientUid = Token;
 
-// Watch event bus to react instantly when sibling components change data states
 watch(() => eventBus.refreshPending, () => {
-  // Add any extra reactions Component A needs to take when Component B modifies/clears bills
   console.log('Event bus triggered from sibling component.');
 });
 
@@ -260,21 +258,23 @@ const total = computed(() => {
   return stotal - reduce;
 });
 
-async function printKOT(items, billNum, currentOrderType, shopName, noteForChef) {
+async function printKOT(items, billNum, currentOrderType, currentPaymentType, shopName, noteForChef, printDate, printTime, existingCharacteristic = null) {
   try {
     const kotPayload = {
       arrays: JSON.parse(JSON.stringify(items)),
       billnum: billNum,
-      orderType: String(currentOrderType || 'DINE-IN').toUpperCase(),
+      orderType: String(currentOrderType || 'Dine-In').toUpperCase(),
+      paymentType: currentPaymentType || 'Cash',
       chefNote: noteForChef || '',
       note: noteForChef || '',
-      date: new Date().toLocaleDateString(),
-      time: new Date().toLocaleTimeString(),
+      date: printDate,
+      time: printTime,
       shopname: shopName
     };
-    await printReceipt(kotPayload);
+    return await printKot(kotPayload, existingCharacteristic);
   } catch (err) {
     console.warn('KOT Print note:', err);
+    return { success: false, error: err.message };
   }
 }
 
@@ -297,7 +297,7 @@ async function bill(statusType = 'paid') {
     clientUid: clientUid,
     sc: Number(sc.value) || 0,
     rc: Number(rc.value) || 0,
-    mobile: trimmedMobile|| '00000',
+    mobile: trimmedMobile || '00000',
     customerMobile: trimmedMobile,
     chefNote: trimmedChefNote,
     note: trimmedChefNote,
@@ -337,20 +337,11 @@ async function bill(statusType = 'paid') {
       shop = result.shopname;
     }
 
-    const kotOrderLabel = statusType === 'paid'
-      ? orderType.value
-      : `${orderType.value} / Held`;
-
-    await printKOT(
-      selectedItems.value,
-      billnumResult,
-      kotOrderLabel,
-      currentShopName,
-      trimmedChefNote
-    );
+    const printDate = new Date().toLocaleDateString();
+    const printTime = new Date().toLocaleTimeString();
 
     if (statusType === 'paid') {
-      const printPayload = {
+      const billPayload = {
         arrays: JSON.parse(JSON.stringify(selectedItems.value)),
         rcvalue: Number(rc.value),
         scvalue: Number(sc.value),
@@ -365,12 +356,58 @@ async function bill(statusType = 'paid') {
         note: trimmedChefNote,
         paymentType: paymentType.value,
         orderType: orderType.value,
-        date: new Date().toLocaleDateString(),
-        time: new Date().toLocaleTimeString()
+        date: printDate,
+        time: printTime
       };
 
-      await printReceipt(printPayload);
+      const billRes = await printBill(billPayload);
+      if (!billRes.success) {
+        console.warn('Bill printer note:', billRes.error);
+      }
+
+      if (billRes.success && billRes.characteristic) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        const kotRes = await printKOT(
+          selectedItems.value,
+          billnumResult,
+          orderType.value,
+          paymentType.value,
+          currentShopName,
+          trimmedChefNote,
+          printDate,
+          printTime,
+          billRes.characteristic
+        );
+        if (!kotRes.success) {
+          console.warn('KOT printer note:', kotRes.error);
+        }
+        if (billRes.device?.gatt?.connected) {
+          billRes.device.gatt.disconnect();
+        }
+      } else {
+        await printKOT(
+          selectedItems.value,
+          billnumResult,
+          orderType.value,
+          paymentType.value,
+          currentShopName,
+          trimmedChefNote,
+          printDate,
+          printTime
+        );
+      }
     } else {
+      const kotOrderLabel = `${orderType.value} / Held`;
+      await printKOT(
+        selectedItems.value,
+        billnumResult,
+        kotOrderLabel,
+        paymentType.value,
+        currentShopName,
+        trimmedChefNote,
+        printDate,
+        printTime
+      );
       alert('Bill held successfully as pending and KOT printed!');
     }
 
@@ -382,7 +419,6 @@ async function bill(statusType = 'paid') {
     paymentType.value = 'Cash';
     orderType.value = 'Dine-In';
 
-    // Notify sibling components (like Component B) via event bus that a bill was held/processed
     eventBus.triggerRefresh();
   } catch (err) {
     console.error('Bill save failed:', err);
@@ -583,7 +619,7 @@ async function holdBill() {
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
-  overflow-y:scroll;
+  overflow-y: scroll;
 }
 
 .bill-header {
@@ -787,6 +823,8 @@ async function holdBill() {
   background-color: #334155;
   cursor: not-allowed;
 }
-#white{
-color:white;}
+
+#white {
+  color: white;
+}
 </style>
