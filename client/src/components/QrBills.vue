@@ -28,6 +28,14 @@ class="pending-card"
 
 <div class="card-mid-row">
 <span class="customer-name">{{ o.customer || 'Walk-in Customer' }}</span>
+<span class="order-meta-badges">
+  <span class="meta-tag">{{ o.orderType || 'Dine-In' }}</span>
+  <span class="meta-tag">{{ o.paymentType || 'Cash' }}</span>
+</span>
+</div>
+
+<div v-if="o.note" class="card-note-row">
+  <span class="note-label">Note:</span> {{ o.note }}
 </div>
 
 <div class="card-bot-row">
@@ -42,6 +50,20 @@ class="pending-card"
 <div class="client-bill">
 <div class="bill-header">
 <h1 id="h1">Bill #{{ selectedOrder?.id || '--' }}</h1>
+<div v-if="selectedOrder" class="bill-meta-summary">
+  <div class="meta-item">
+    <span class="meta-key">Order Type:</span>
+    <span class="meta-val">{{ selectedOrder.orderType || 'Dine-In' }}</span>
+  </div>
+  <div class="meta-item">
+    <span class="meta-key">Payment Type:</span>
+    <span class="meta-val">{{ selectedOrder.paymentType || 'Cash' }}</span>
+  </div>
+  <div class="meta-item meta-note-full">
+    <span class="meta-key">Chef Note:</span>
+    <span class="meta-val">{{ selectedOrder.note || 'None' }}</span>
+  </div>
+</div>
 </div>
 
 <div class="heads">
@@ -143,7 +165,12 @@ function remove(rid) {
 }
 
 function loadPending(o) {
-  selectedOrder.value = o;
+  selectedOrder.value = {
+    ...o,
+    orderType: o.orderType || 'Dine-In',
+    paymentType: o.paymentType || 'Cash',
+    note: o.note || ''
+  };
   selectedItems.value = (o.items || []).map(it => {
     const qty = Number(it.qty) || 1;
     let rawPrice = Number(it.price) || 0;
@@ -171,7 +198,10 @@ async function reject() {
     status: 'cancelled',
     billNum: targetId,
     sc: Number(sc.value) || 0,
-    rc: Number(rc.value) || 0
+    rc: Number(rc.value) || 0,
+    orderType: selectedOrder.value.orderType || 'Dine-In',
+    paymentType: selectedOrder.value.paymentType || 'Cash',
+    note: selectedOrder.value.note || ''
   };
 
   try {
@@ -220,6 +250,9 @@ async function bill() {
   saving.value = true;
   buttonText.value = 'Saving...';
   const targetId = selectedOrder.value.id;
+  const currentOrderType = selectedOrder.value.orderType || 'Dine-In';
+  const currentPaymentType = selectedOrder.value.paymentType || 'Cash';
+  const currentNote = selectedOrder.value.note || '';
 
   const payload = {
     id: targetId,
@@ -228,6 +261,9 @@ async function bill() {
     clientUid: clientUid,
     sc: Number(sc.value) || 0,
     rc: Number(rc.value) || 0,
+    orderType: currentOrderType,
+    paymentType: currentPaymentType,
+    note: currentNote,
     items: selectedItems.value.map(i => ({
       pid: i.id || i.itemid,
       id: i.id || i.itemid,
@@ -274,7 +310,9 @@ async function bill() {
       billnum: finalBillNum,
       currency: currency.value,
       shopname: selectedOrder.value.shopname || 'KINETIC POS',
-      orderType: selectedOrder.value.orderType || 'DINE-IN'
+      orderType: currentOrderType,
+      paymentType: currentPaymentType,
+      note: currentNote
     };
 
     const printResult = await printReceipt(printPayload);
@@ -310,6 +348,9 @@ async function fetchPendingOrders() {
 
     const validServerOrders = serverData.map(order => ({
       ...order,
+      orderType: order.orderType || 'Dine-In',
+      paymentType: order.paymentType || 'Cash',
+      note: order.note || '',
       items: (order.items || []).map(it => ({ ...it, isBackendData: true }))
     }));
 
@@ -438,12 +479,43 @@ html, body {
 .card-mid-row {
   display: flex;
   justify-content: space-between;
+  align-items: center;
+  gap: 8px;
 }
 
 .customer-name {
   font-weight: 600;
   color: #334155;
   font-size: 0.9rem;
+}
+
+.order-meta-badges {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.meta-tag {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #0369a1;
+  background: #e0f2fe;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.card-note-row {
+  font-size: 0.8rem;
+  color: #334155;
+  background: #f1f5f9;
+  padding: 6px 10px;
+  border-radius: 6px;
+  word-break: break-word;
+}
+
+.note-label {
+  font-weight: 700;
+  color: #041528;
 }
 
 .card-bot-row {
@@ -495,6 +567,40 @@ html, body {
   font-size: 1.15rem;
   color: #041528;
   font-weight: 600;
+}
+
+.bill-meta-summary {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  font-size: 0.82rem;
+}
+
+.meta-item {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+
+.meta-note-full {
+  width: 100%;
+  align-items: flex-start;
+}
+
+.meta-key {
+  font-weight: 600;
+  color: #64748b;
+}
+
+.meta-val {
+  font-weight: 600;
+  color: #0f172a;
+  word-break: break-word;
 }
 
 .heads {

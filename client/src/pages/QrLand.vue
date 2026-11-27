@@ -315,10 +315,10 @@ const ordersError = ref('');
 const expandedId = ref(null);
 
 const availablePaymentOptions = computed(() => {
-  if (orderType.value === 'Dine-In') {
-    return ['Card'];
+  if (orderType.value === 'Dine-In' ||orderType.value === 'Takeaway'  ) {
+    return ['Card','Online', 'Cash'];
   }
-  return ['Online', 'Cash'];
+  return ['Cash'];
 });
 
 watch(orderType, (newType) => {
