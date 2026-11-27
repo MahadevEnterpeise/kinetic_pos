@@ -853,7 +853,10 @@ saveLogData: async (username, reason, usertype, status) => {
                 b.sc, 
                 b.rc, 
                 b.status, 
-                b.client, 
+                b.client,
+                b.orderType,
+                b.paymentType,
+                b.note,
                 b.time,
                 u.name AS actorName
             FROM shopbill b
@@ -881,6 +884,9 @@ saveLogData: async (username, reason, usertype, status) => {
                     date: row.time,
                     status: row.status,
                     mobile: row.mobile,
+                    orderType: row.orderType || 'Dine-In',
+                    paymentType: row.paymentType || 'Cash',
+                    note: row.note || '',
                     staffName: row.actorName || 'Customer Portal',
                     currency: 'LKR',
                     items: []

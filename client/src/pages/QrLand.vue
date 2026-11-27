@@ -167,6 +167,11 @@
               <span class="bill-number">Bill #{{ order.billnum }}</span>
               <span class="status-pill pending">Pending</span>
             </div>
+            <div class="order-meta-inline">
+              <span class="order-meta-tag">{{ order.orderType || 'Dine-In' }}</span>
+              <span class="order-meta-tag">{{ order.paymentType || 'Cash' }}</span>
+              <span v-if="order.note" class="order-meta-note">Note: {{ order.note }}</span>
+            </div>
             <div class="order-row-bottom">
               <span class="order-timestamp">{{ formatDate(order.date) }}</span>
               <span class="order-amount">{{ Number(order.total).toFixed(2) }} {{ order.currency || currency }}</span>
@@ -174,6 +179,11 @@
 
             <!-- Expanded Order Line Items & Financial Breakdown -->
             <div class="order-details-drawer" v-if="expandedId === order.id" @click.stop>
+              <div class="order-meta-summary">
+                <span><strong>Order Type:</strong> {{ order.orderType || 'Dine-In' }}</span>
+                <span><strong>Payment Type:</strong> {{ order.paymentType || 'Cash' }}</span>
+                <span v-if="order.note" class="meta-note-line"><strong>Note:</strong> {{ order.note }}</span>
+              </div>
               <div class="drawer-header">
                 <span>Item</span>
                 <span>Qty</span>
@@ -235,6 +245,11 @@
               <span class="bill-number">Bill #{{ order.billnum }}</span>
               <span class="status-pill" :class="order.status">{{ order.status }}</span>
             </div>
+            <div class="order-meta-inline">
+              <span class="order-meta-tag">{{ order.orderType || 'Dine-In' }}</span>
+              <span class="order-meta-tag">{{ order.paymentType || 'Cash' }}</span>
+              <span v-if="order.note" class="order-meta-note">Note: {{ order.note }}</span>
+            </div>
             <div class="order-row-bottom">
               <span class="order-timestamp">{{ formatDate(order.date) }}</span>
               <span class="order-amount">{{ Number(order.total).toFixed(2) }} {{ order.currency || currency }}</span>
@@ -242,6 +257,11 @@
 
             <!-- Expanded Order Line Items & Financial Breakdown -->
             <div class="order-details-drawer" v-if="expandedId === order.id" @click.stop>
+              <div class="order-meta-summary">
+                <span><strong>Order Type:</strong> {{ order.orderType || 'Dine-In' }}</span>
+                <span><strong>Payment Type:</strong> {{ order.paymentType || 'Cash' }}</span>
+                <span v-if="order.note" class="meta-note-line"><strong>Note:</strong> {{ order.note }}</span>
+              </div>
               <div class="drawer-header">
                 <span>Item</span>
                 <span>Qty</span>
@@ -315,8 +335,8 @@ const ordersError = ref('');
 const expandedId = ref(null);
 
 const availablePaymentOptions = computed(() => {
-  if (orderType.value === 'Dine-In' ||orderType.value === 'Takeaway'  ) {
-    return ['Card','Online', 'Cash'];
+  if (orderType.value === 'Dine-In' || orderType.value === 'Takeaway') {
+    return ['Card', 'Online', 'Cash'];
   }
   return ['Cash'];
 });
@@ -324,8 +344,8 @@ const availablePaymentOptions = computed(() => {
 watch(orderType, (newType) => {
   if (newType === 'Dine-In') {
     paymentType.value = 'Card';
-  } else if (paymentType.value === 'Card') {
-    paymentType.value = 'Online';
+  } else if (!availablePaymentOptions.value.includes(paymentType.value)) {
+    paymentType.value = availablePaymentOptions.value[0];
   }
 });
 
@@ -888,8 +908,51 @@ onMounted(() => {
   align-items: center;
 }
 
+.order-meta-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+}
+
+.order-meta-tag {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: #0369a1;
+  background: #e0f2fe;
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+
+.order-meta-note {
+  font-size: 0.7rem;
+  color: #334155;
+  background: #f1f5f9;
+  padding: 2px 6px;
+  border-radius: 4px;
+  word-break: break-word;
+}
+
+.order-meta-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-size: 0.72rem;
+  color: #334155;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.meta-note-line {
+  width: 100%;
+  word-break: break-word;
+}
+
 .order-row-bottom {
-  margin-top: 3px;
+  margin-top: 4px;
   font-size: 0.8rem;
 }
 
