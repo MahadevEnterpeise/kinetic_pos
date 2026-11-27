@@ -79,9 +79,32 @@
           <span>{{ Number(total || 0).toFixed(2) }} {{ currency }}</span>
         </div>
 
-        <div class="calc-row total-row">
-          <span>Customer</span>
-          <span><input type="tel" v-model="mobile" placeholder="customer mobile number"/></span>
+        <div class="calc-row extra-row">
+          <span>Customer Mobile</span>
+          <input type="tel" v-model="mobile" placeholder="customer mobile number" class="extra-input" />
+        </div>
+
+        <div class="calc-row extra-row">
+          <span>Chef Note</span>
+          <input type="text" v-model="chefNote" placeholder="note for chef" class="extra-input" />
+        </div>
+
+        <div class="calc-row extra-row">
+          <span>Payment Type</span>
+          <select v-model="paymentType" class="extra-select">
+            <option value="Cash">Cash</option>
+            <option value="Card">Card</option>
+            <option value="Online / QR">Online / QR</option>
+          </select>
+        </div>
+
+        <div class="calc-row extra-row">
+          <span>Order Type</span>
+          <select v-model="orderType" class="extra-select">
+            <option value="Dine-In">Dine-In</option>
+            <option value="Takeaway">Takeaway</option>
+            <option value="Delivery">Delivery</option>
+          </select>
         </div>
 
         <div class="action-buttons">
@@ -117,6 +140,9 @@ const tempQtys = ref({});
 const saving = ref(false);
 let shop = '';
 const mobile = ref(''); // customer mobile number variable
+const chefNote = ref(''); // note for chef
+const paymentType = ref('Cash'); // payment type dropdown
+const orderType = ref('Dine-In'); // order type dropdown
 const Token = sessionStorage.getItem('userToken');
 const shopId = sessionStorage.getItem('shopId') || sessionStorage.getItem('shopid');
 const clientUid = Token;
@@ -234,12 +260,14 @@ const total = computed(() => {
   return stotal - reduce;
 });
 
-async function printKOT(items, billNum, orderType, shopName) {
+async function printKOT(items, billNum, currentOrderType, shopName, noteForChef) {
   try {
     const kotPayload = {
       arrays: JSON.parse(JSON.stringify(items)),
       billnum: billNum,
-      orderType: orderType.toUpperCase(),
+      orderType: String(currentOrderType || 'DINE-IN').toUpperCase(),
+      chefNote: noteForChef || '',
+      note: noteForChef || '',
       date: new Date().toLocaleDateString(),
       time: new Date().toLocaleTimeString(),
       shopname: shopName
@@ -260,12 +288,21 @@ async function bill(statusType = 'paid') {
   saving.value = true;
   button.value = statusType === 'pending' ? 'Holding...' : 'Saving...';
 
+  const trimmedMobile = mobile.value.trim();
+  const trimmedChefNote = chefNote.value.trim();
+
   const payload = {
     shopId: shopId,
     uid: clientUid,
     clientUid: clientUid,
     sc: Number(sc.value) || 0,
     rc: Number(rc.value) || 0,
+    mobile: trimmedMobile|| '00000',
+    customerMobile: trimmedMobile,
+    chefNote: trimmedChefNote,
+    note: trimmedChefNote,
+    paymentType: paymentType.value,
+    orderType: orderType.value,
     items: selectedItems.value.map(item => ({
       pid: item.id || item.itemid,
       name: item.name,
@@ -300,11 +337,16 @@ async function bill(statusType = 'paid') {
       shop = result.shopname;
     }
 
+    const kotOrderLabel = statusType === 'paid'
+      ? orderType.value
+      : `${orderType.value} / Held`;
+
     await printKOT(
       selectedItems.value,
       billnumResult,
-      statusType === 'paid' ? 'Dine-In / Paid' : 'Held / Pending',
-      currentShopName
+      kotOrderLabel,
+      currentShopName,
+      trimmedChefNote
     );
 
     if (statusType === 'paid') {
@@ -317,6 +359,12 @@ async function bill(statusType = 'paid') {
         billnum: billnumResult,
         currency: currency.value,
         shopname: currentShopName,
+        mobile: trimmedMobile,
+        customerMobile: trimmedMobile,
+        chefNote: trimmedChefNote,
+        note: trimmedChefNote,
+        paymentType: paymentType.value,
+        orderType: orderType.value,
         date: new Date().toLocaleDateString(),
         time: new Date().toLocaleTimeString()
       };
@@ -329,6 +377,10 @@ async function bill(statusType = 'paid') {
     selectedItems.value = [];
     rc.value = 0;
     sc.value = 0;
+    mobile.value = '';
+    chefNote.value = '';
+    paymentType.value = 'Cash';
+    orderType.value = 'Dine-In';
 
     // Notify sibling components (like Component B) via event bus that a bill was held/processed
     eventBus.triggerRefresh();
@@ -657,6 +709,28 @@ async function holdBill() {
 }
 
 .input-calc-row input:focus {
+  border-color: #38bdf8;
+}
+
+.extra-row {
+  gap: 12px;
+  font-size: 0.85rem;
+}
+
+.extra-input,
+.extra-select {
+  width: 170px;
+  padding: 5px 8px;
+  border: 1px solid #475569;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  background: #1e293b;
+  color: #f8fafc;
+  outline: none;
+}
+
+.extra-input:focus,
+.extra-select:focus {
   border-color: #38bdf8;
 }
 

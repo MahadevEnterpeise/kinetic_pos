@@ -920,7 +920,7 @@ saveLogData: async (username, reason, usertype, status) => {
         throw new Error(`[DB Error] Failed to fetch customer order history: ${error.message}`);
     }
 },
-    saveBillItems: async (shopId, billNum, items, status = 'paid', clientUid = null, customerMobile = null, sc = 0, rc = 0) => {
+    saveBillItems: async (shopId, billNum, items, status = 'paid', clientUid = null, customerMobile = null, sc = 0, rc = 0,orderType,paymentType,note) => {
 try {
 let resolvedMobile = customerMobile;
 
@@ -932,8 +932,8 @@ resolvedMobile = userRows[0].mobile || null;
 }
 
 const queryText = `
-INSERT INTO shopbill (billid, billnum, sid, mobile, pid, name, qty, price, sc, rc, status, client, time)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+INSERT INTO shopbill (billid, billnum, sid, mobile, pid, name, qty, price, sc, rc, status, client,orderType,paymentType,note, time)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?,?,? NOW())
 `;
 
 for (const item of items) {
@@ -959,7 +959,10 @@ price,
 Number(sc) || 0,
 Number(rc) || 0,
 status, 
-clientUid || null
+clientUid || null,
+orderType,
+paymentType,
+note
 ]);
 
 await db.query(
