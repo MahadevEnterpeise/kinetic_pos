@@ -705,7 +705,8 @@ router.post('/user-me', async (req, res) => {
         const { uid, shopId } = req.body;
         if (!uid || !shopId) return res.status(400).json({ error: 'Missing parameters' });
 
-        const qrUrl = `https://kineticpos1.bonto.run/auth?next=${encodeURIComponent(`/order/${shopId}`)}`;
+        //const qrUrl = `https://kineticpos1.bonto.run/auth?next=${encodeURIComponent(`/order/${shopId}`)}`;
+        const qrUrl = `https://expert-potato-5gjvr9r79q4vf7w77-5173.app.github.dev/auth?next=${encodeURIComponent(`/order/${shopId}`)}`;
         res.status(200).json({ url: qrUrl });
     } catch (error) {
         console.error('❌ Error generating QR landing path:', error.message);
