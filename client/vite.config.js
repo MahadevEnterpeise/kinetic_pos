@@ -20,7 +20,7 @@ export default defineConfig({
         background_color: '#ffffff',
         display: 'standalone',
         scope: '/',
-        start_url: '/',
+        start_url: '/auth',
         icons: [
           {
             src: '/logo3.png', // <--- MUST be a PNG or SVG, not jpg
