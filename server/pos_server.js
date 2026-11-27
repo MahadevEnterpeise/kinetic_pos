@@ -548,7 +548,19 @@ router.post('/bills', resolveActorContext, async (req, res) => {
         const fakeBillnum = await dbActions.generateUniqueBillNum(shopId);
         const customerMobile=mobile;
         console.log('bill sarted')
-        await dbActions.saveBillItems(shopId, fakeBillnum, items, status || 'paid', resolvedClientUid, null, sc, rc,customerMobile,note,orderType,paymentType);
+        await dbActions.saveBillItems(
+  shopId,
+  fakeBillnum,
+  items,
+  status || 'paid',
+  resolvedClientUid,
+  customerMobile || null,
+  sc,
+  rc,
+  orderType || null,
+  paymentType || null,
+  note || null
+);
 
         const { name: actor, role } = req.actorInfo;
         const details = `${actor} created counter bill #${fakeBillnum} for serivice charge${sc}% and discount${rc}%`;

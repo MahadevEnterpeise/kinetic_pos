@@ -933,7 +933,7 @@ resolvedMobile = userRows[0].mobile || null;
 
 const queryText = `
 INSERT INTO shopbill (billid, billnum, sid, mobile, pid, name, qty, price, sc, rc, status, client,orderType,paymentType,note, time)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?,?,? NOW())
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?,?,?, NOW())
 `;
 
 for (const item of items) {
