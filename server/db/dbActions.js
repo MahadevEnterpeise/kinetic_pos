@@ -1279,9 +1279,8 @@ throw new Error(`[DB Error] Failed to save bill and update stock: ${error.messag
             SELECT 
                 name,
                 email,
-                phone,
+                mobile,
                 address,
-                city,
                 billdate,
                 IFNULL(due, 0.00) AS due_amount,
                 status,
@@ -1307,7 +1306,7 @@ throw new Error(`[DB Error] Failed to save bill and update stock: ${error.messag
 
         if (currentStreak < 0) currentStreak = 0;
 
-        if (row.billdate && row.due_amount > 0) {
+        if (row.billdate && Number(row.due_amount) > 0) {
             if (currentStreak >= 3) {
                 isLocked = true;
             }
@@ -1320,12 +1319,12 @@ throw new Error(`[DB Error] Failed to save bill and update stock: ${error.messag
             status: isLocked ? 'locked' : row.status,
             billdate: row.billdate,
             isLocked: isLocked,
-            owner_name: row.name || row.owner_name || 'Shop',
+            owner_name: row.name || 'Shop',
             email: row.email || '',
-            phone: row.phone || '',
+            phone: row.mobile || '',
             address: row.address || '',
-            city: row.city || '',
-            pay_token:row.pay_token
+            city: '',
+            pay_token: row.pay_token
         };
     } catch (error) {
         throw new Error(`[DB Error] Failed to read account subscription dues: ${error.message}`);
